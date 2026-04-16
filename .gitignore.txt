@@ -1,0 +1,28 @@
+# MATLAB
+*.asv
+*.m~
+*.mex*
+slprj/
+*.slxc
+*.p
+
+# Data files (large)
+*.mat
+*.h5
+*.hdf5
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Session files
+*.session.mat
+
+# Temporary output folders
+output/
+results/
+temp/
+
+# Allow sample data
+!data/sample_kidney.mat

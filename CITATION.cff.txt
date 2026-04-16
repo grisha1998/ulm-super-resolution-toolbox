@@ -1,0 +1,30 @@
+# This CITATION.cff file was generated for GitHub
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+authors:
+  - family-names: "Shapiro"
+    given-names: "Grigori"
+    affiliation: "School of Biomedical Engineering, Tel Aviv University, Tel Aviv, Israel"
+title: "Ultrasound Localization Microscopy with Micro - and Nanobubbles: Processing Framework and Experimental Validation"
+version: 1.0.0
+date-released: 2026-04-16
+url: "https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Shapiro"
+      given-names: "Grigori"
+      affiliation: "School of Biomedical Engineering, Tel Aviv University, Tel Aviv, Israel"
+    - family-names: "Gershman"
+      given-names: "Yarin"
+      affiliation: "School of Biomedical Engineering, Tel Aviv University, Tel Aviv, Israel"
+    - family-names: "Mano"
+      given-names: "Tamar"
+      affiliation: "School of Biomedical Engineering, Tel Aviv University, Tel Aviv, Israel"
+    - family-names: "Ilovitsh"
+      given-names: "Tali"
+      affiliation: "School of Biomedical Engineering and The Sagol School of Neuroscience, Tel Aviv University, Tel Aviv, Israel"
+  title: "Ultrasound Localization Microscopy with sub-micron Nanobubbles: An Interactive Processing Framework and Experimental Validation"
+  year: 2026
+  journal: "Journal Name Placeholder"
+  doi: "10.0000/00000"
