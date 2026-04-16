@@ -711,9 +711,9 @@ External benchmark dataset provided by Chavignon et al. [Zenodo, 2023]:
 15.625 MHz, 1000 Hz, 5-angle compounding. Used to validate the pipeline against a publicly available reference before applying it to experimental kidney data.
 
 <p align="center">
-  <img src="docs/figures/In_Vivo_Rat_Brain.jpg" width="800"/>
+  <img src="docs/figures/In_Vivo_Rat_Brain.jpg" width="820"/>
   <br>
-  <em>Benchmark in vivo data reconstruction validation. (a) Temporal average of raw IQ B-mode data. (b) SVD-filtered image showing isolated but diffraction-limited vascular segments. (c) Super-Resolution Density Map — reconstructed vascular architecture. (d) Dual-Mode Fusion — brightness represents vessel density, color encodes flow velocity (saturated at 30 mm/s). Data: Chavignon et al., Zenodo 2023.</em>
+  <em>Benchmark in vivo data reconstruction validation. (a) Temporal average of raw IQ B-mode data. (b) Temporal average of SVD-filtered data showing isolated but diffraction-limited vascular segments. (c) Super-Resolution Density Map — reconstructed vascular architecture. (d) Dual-Mode Fusion — brightness represents vessel density, color encodes flow velocity (saturated at 30 mm/s). Data: Chavignon et al., Zenodo 2023.</em>
 </p>
 
 ### In Vivo Rat Kidney
