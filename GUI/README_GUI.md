@@ -1,4 +1,5 @@
-# ULM Master GUI v3.0
+# ULM Master GUI v3.0 — Definitive Documentation Manual
+
 ### An Interactive Optimization Platform for Ultrasound Localization Microscopy
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2020b%2B-blue)](https://www.mathworks.com/)
@@ -6,18 +7,18 @@
 
 ---
 
-## 👤 Authors & Affiliation
+## Authors & Affiliation
 
-**Grigori Shapiro**  
-Tali Ilovitsh Lab  
-School of Biomedical Engineering  
+**Grigori Shapiro**
+Tali Ilovitsh Lab
+School of Biomedical Engineering
 Tel Aviv University, Tel Aviv, Israel
 
 **Supervisor:** Prof. Tali Ilovitsh
 
 ---
 
-## 📄 Citation
+## Citation
 
 If you use this software in your research, please cite:
 
@@ -25,61 +26,63 @@ If you use this software in your research, please cite:
 > Shapiro, G. "Ultrasound Localization Microscopy with Micro- and Nanobubbles: Processing Framework and Experimental Validation." M.Sc. Thesis, School of Biomedical Engineering, Tel Aviv University, March 2026.
 
 **Journal Article** *(in preparation — citation will be updated upon publication):*
-> Shapiro, G., et al. "[Title TBD]." *[Journal TBD]*, [Year TBD].  
+> Shapiro, G., et al. "[Title TBD]." *[Journal TBD]*, [Year TBD].
 > DOI: *pending*
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-1. [Overview](#1-overview)
+1. [Executive Summary](#1-executive-summary)
 2. [Scientific Background](#2-scientific-background)
 3. [System Requirements](#3-system-requirements)
-4. [Installation](#4-installation)
+4. [Installation & Launch](#4-installation--launch)
 5. [File Structure](#5-file-structure)
-6. [Architecture](#6-architecture)
-7. [Launching the GUI](#7-launching-the-gui)
-8. [Input Data Format](#8-input-data-format)
-9. [GUI Layout](#9-gui-layout)
-10. [Workflow — Tab by Tab](#10-workflow--tab-by-tab)
+6. [Architectural Deep-Dive](#6-architectural-deep-dive)
+    - [6.1 Design Patterns & Separation of Concerns](#61-design-patterns--separation-of-concerns)
+    - [6.2 The Central Algorithm Registry](#62-the-central-algorithm-registry)
+    - [6.3 Pipeline State Machine & Downstream Invalidation](#63-pipeline-state-machine--downstream-invalidation)
+    - [6.4 SVD Caching via DataHash](#64-svd-caching-via-datahash)
+    - [6.5 Debounced Display & the DisplayManager](#65-debounced-display--the-displaymanager)
+    - [6.6 Deep Serialization via SessionManager](#66-deep-serialization-via-sessionmanager)
+    - [6.7 UndoRedoManager & Parameter History](#67-undoredomanager--parameter-history)
+    - [6.8 Fallback Parameter System](#68-fallback-parameter-system)
+    - [6.9 Global Tooltip System](#69-global-tooltip-system)
+7. [Input Data Format](#7-input-data-format)
+8. [GUI Layout Reference](#8-gui-layout-reference)
+9. [Tab-by-Tab Technical Guide](#9-tab-by-tab-technical-guide)
     - [Tab 1: Filter](#tab-1-filter)
     - [Tab 2: Detect](#tab-2-detect)
     - [Tab 3: Localize](#tab-3-localize)
     - [Tab 4: Track](#tab-4-track)
     - [Tab 5: Post-Process](#tab-5-post-process)
     - [Tab 6: Render](#tab-6-render)
-11. [Parameter Reference](#11-parameter-reference)
+10. [Specialized Panels & UX Features](#10-specialized-panels--ux-features)
+    - [10.1 Visual Adjustments Sidebar](#101-visual-adjustments-sidebar)
+    - [10.2 Kalman Trust Balance Panel](#102-kalman-trust-balance-panel)
+    - [10.3 Vessel Masking & Interactive Histogram](#103-vessel-masking--interactive-histogram)
+    - [10.4 Advanced Parameter Modals](#104-advanced-parameter-modals)
+11. [Consolidated Parameter Reference](#11-consolidated-parameter-reference)
 12. [Session Management](#12-session-management)
 13. [Undo / Redo System](#13-undo--redo-system)
-14. [ROI & Masking Tools](#14-roi--masking-tools)
-15. [Keyboard Shortcuts](#15-keyboard-shortcuts)
-16. [Performance Guide](#16-performance-guide)
+14. [Keyboard Shortcuts](#14-keyboard-shortcuts)
+15. [Developer's Guide: Extending the Registry](#15-developers-guide-extending-the-registry)
+16. [Performance Optimization](#16-performance-optimization)
 17. [Troubleshooting](#17-troubleshooting)
 18. [License](#18-license)
+19. [Acknowledgments](#19-acknowledgments)
 
 ---
 
-## 1. Overview
+## 1. Executive Summary
 
-The **ULM Master GUI** is a MATLAB-based interactive platform for end-to-end Ultrasound Localization Microscopy (ULM) processing. It was developed to address a fundamental challenge in ULM research: the high sensitivity required to detect and track sub-micron nanobubbles (NB), which have a substantially weaker acoustic backscatter signal compared to standard microbubbles (MB).
+The **ULM Master GUI v3.0** is a MATLAB-based interactive platform for end-to-end Ultrasound Localization Microscopy (ULM) processing. It was developed to address a fundamental challenge in ULM research: the high sensitivity required to detect and track sub-micron nanobubbles (NB), which have a substantially weaker acoustic backscatter signal compared to standard microbubbles (MB).
 
-Unlike static "black-box" batch scripts where all parameters are set once and applied globally, the ULM Master GUI provides a **real-time feedback loop**: every parameter adjustment triggers an immediate re-calculation on the cached dataset, visualizing the result instantly. This interactive approach is essential for the systematic optimization of the full processing chain — from clutter filter thresholds to sub-pixel localization constraints to tracking gate sizes — and is particularly critical when working with agents operating near the detection limit.
+Unlike static batch scripts where all parameters are set once and applied globally, the ULM Master GUI provides a **real-time feedback loop**: every parameter adjustment triggers an immediate re-calculation on the cached dataset, visualizing the result instantaneously. This interactive approach is essential for the systematic optimization of the full processing chain — from clutter filter thresholds to sub-pixel localization constraints to tracking gate sizes — and is particularly critical when working with agents operating near the detection limit.
 
-**Key design principles:**
-- Every processing stage is independently tunable with live visual feedback
-- The cached SVD decomposition allows instant slider adjustments without re-computation
-- Optimized parameters can be directly exported to the batch processing pipeline (`run_ULM_Analysis_Kidney.m`)
-- Full session save/load ensures reproducibility across experiments
+**Core design principles include:** independently tunable processing stages with live visual feedback; a cached SVD decomposition that renders slider adjustments instantaneous; direct export of optimized parameters to the batch processing pipeline (`run_ULM_Analysis_Kidney.m`); and full session save/load for reproducibility across experiments.
 
-**New in v3.0:**
-- **Central Algorithm Registry** — A single source of truth (`getAlgorithmRegistry`) drives every dropdown, dispatch, and tooltip. Adding a new algorithm is a one-line change.
-- **Advanced Parameter Modals** — "Advanced..." buttons on the Localize, Track, and Render tabs expose the full parameter set from `setDefaultParams.m` in grouped, annotated modal dialogs.
-- **Global Tooltip System** — Hovering over any control shows a plain-English description of the parameter, its pipeline stage, and its effect. Provides a built-in mini user-guide without leaving the interface.
-- **Kalman Trust Balance Panel** — A real-time visual indicator on Tab 4 showing the theoretical split between trusting the motion model vs. trusting the raw localizations, computed from the current noise parameters.
-- **Localization Density Map** — A preview button on Tab 3 renders the localization density before committing to tracking, enabling early validation.
-- **Visual Adjustments Panel** — A persistent left-side panel with display controls (normalize, log compression, gamma, colormap, CLim) for fine-tuned visualization of any processing stage.
-- **Robust Fallback System** — If `setDefaultParams.m` is missing or fails, the GUI falls back to safe built-in defaults and warns the user, preventing crashes.
-- **QC Summary Dialog** — After localization, a dialog displays the full quality-control report (rejection counts, pass rates) in a monospaced text window.
+**Major features introduced in v3.0** are: a Central Algorithm Registry (`getAlgorithmRegistry`) as the single source of truth for all dropdowns and dispatch; Advanced Parameter Modals exposing every parameter from `setDefaultParams.m` in grouped, annotated modal dialogs; a Global Tooltip System; a Kalman Trust Balance Panel for real-time visualization of model-vs-measurement confidence; a Localization Density Map preview; a persistent Visual Adjustments sidebar; a Robust Fallback System to prevent crashes if `setDefaultParams.m` is absent; and a QC Summary Dialog after localization.
 
 ---
 
@@ -87,75 +90,60 @@ Unlike static "black-box" batch scripts where all parameters are set once and ap
 
 ULM is a super-resolution imaging technique that reconstructs microvascular architecture by localizing individual gas-filled contrast agents with sub-pixel precision and linking their positions into trajectories over thousands of frames. Resolution is not limited by the acoustic diffraction limit (typically ~λ/2, hundreds of μm for clinical transducers) but by localization precision, which follows:
 
-```
-σ_loc ∝ FWHM / √SNR
-```
+$$\sigma_{loc} \propto \frac{FWHM}{\sqrt{SNR}}$$
 
 The pipeline consists of five sequential stages:
 
-| Stage | Challenge | GUI Module |
-|-------|-----------|------------|
-| **Clutter Filtering** | Separating bubble signal from tissue background | Tab 1: Filter |
-| **Detection** | Identifying candidate bubble peaks above noise | Tab 2: Detect |
-| **Localization** | Estimating sub-pixel bubble centroid | Tab 3: Localize |
-| **Tracking** | Linking localizations into coherent trajectories | Tab 4: Track |
-| **Rendering** | Projecting trajectories onto high-resolution grid | Tabs 5–6 |
+| Stage | Scientific Challenge | GUI Module |
+|-------|---------------------|------------|
+| **Clutter Filtering** | Separating bubble signal from tissue background via spatiotemporal decomposition | Tab 1: Filter |
+| **Detection** | Identifying candidate bubble peaks above noise in the filtered volume | Tab 2: Detect |
+| **Localization** | Estimating sub-pixel bubble centroid using point-spread-function models | Tab 3: Localize |
+| **Tracking** | Linking localizations across frames into coherent trajectories | Tab 4: Track |
+| **Rendering** | Projecting trajectories onto a high-resolution super-resolved grid | Tabs 5–6 |
 
-This GUI was validated on in vitro gelatin phantoms (100–500 μm channels), in vivo rat brain data (benchmark dataset, Chavignon et al.), and in vivo rat kidney data. Full experimental details are available in the associated thesis (see Citation).
+This GUI was validated on in vitro gelatin phantoms (100–500 μm channels), in vivo rat brain data (benchmark dataset, Chavignon et al., 2023), and in vivo rat kidney data. Full experimental details are available in the associated thesis (see Citation).
 
 ---
 
 ## 3. System Requirements
 
 ### MATLAB Version
-- **Minimum:** MATLAB R2020b
-- **Recommended:** MATLAB R2022a or later
+
+Minimum: MATLAB R2020b. Recommended: MATLAB R2022a or later.
 
 ### Required Toolboxes
+
 | Toolbox | Used For |
 |---------|----------|
-| Image Processing Toolbox | Masking, ROI tools, morphological operations |
-| Signal Processing Toolbox | Butterworth filter, Savitzky-Golay smoothing |
+| Image Processing Toolbox | Masking, ROI tools, morphological operations, `adapthisteq`, `imtophat`, `imsharpen` |
+| Signal Processing Toolbox | Butterworth filter design, Savitzky-Golay smoothing (`sgolayfilt`) |
 | Statistics and Machine Learning Toolbox | K-means clustering in DCC-SVD |
-| Optimization Toolbox | Gaussian fitting (lsqcurvefit) |
+| Optimization Toolbox | Gaussian fitting via `lsqcurvefit` |
 
 ### Optional Toolboxes
+
 | Toolbox | Benefit |
 |---------|---------|
 | Parallel Computing Toolbox | Significant speedup in Gaussian fitting and post-processing via `parfor` |
 
 ### Hardware
-- **RAM:** 16 GB minimum; 32 GB+ recommended for in vivo datasets
-- **Display:** 1920×1080 minimum resolution (GUI is designed for 1600×1000 px)
 
-### Operating System
-- Windows 10/11 (primary development platform)
-- macOS (tested)
-- Linux (tested)
+RAM: 16 GB minimum; 32 GB+ recommended for in vivo datasets. Display: 1920×1080 minimum resolution (GUI is designed for 1600×1000 px). The GUI runs on Windows 10/11 (primary development platform), macOS, and Linux.
 
 ---
 
-## 4. Installation
+## 4. Installation & Launch
 
-1. **Download** or clone all files into a single directory:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
-   cd YOUR_REPO_NAME
-   ```
+Download or clone all files into a single directory. Open MATLAB and navigate to the cloned directory. The GUI automatically adds the codebase to the MATLAB path on launch via `addpath(genpath(...))`. To verify toolbox availability, run `ver` in the command window and confirm the toolboxes listed in Section 3 are present.
 
-2. **Open MATLAB** and navigate to the cloned directory.
+To launch the GUI:
 
-3. **Add to path** — the GUI does this automatically on launch:
-   ```matlab
-   addpath(genpath('path/to/ulm-codebase'));
-   ```
-   Or let the GUI handle it by running from inside the folder.
+```matlab
+ULM_Master_GUI_v3
+```
 
-4. **Verify toolboxes** are installed by running:
-   ```matlab
-   ver
-   ```
-   Check that the toolboxes listed in Section 3 are present.
+On launch, the GUI will: attempt to load default parameters via `setDefaultParams.m`; run `ensureAllParamFields()` to fill any missing parameter fields; fall back to safe system defaults via `createFallbackParams()` if `setDefaultParams.m` is missing or fails; display a warning dialog if the fallback was used; open a 1600×1000 px figure window; and apply hover tooltips to all controls via the global tooltip system.
 
 ---
 
@@ -165,49 +153,43 @@ This GUI was validated on in vitro gelatin phantoms (100–500 μm channels), in
 ulm-codebase/
 │
 ├── [GUI/]
-│   ├── ULM_Master_GUI_v3.m       ← Main GUI application (entry point)
-│   ├── ULM_Constants.m           ← All default values and limits (centralized)
-│   ├── SessionManager.m          ← Save/load session logic
-│   ├── UndoRedoManager.m         ← Parameter history management
-│   ├── DisplayManager.m          ← All visualization and rendering code
+│   ├── ULM_Master_GUI_v3.m       ← Main GUI application (entry point, ~4700 lines)
+│   ├── ULM_Constants.m           ← All default values, limits, and validation (centralized)
+│   ├── SessionManager.m          ← Save/load session logic with deep serialization
+│   ├── UndoRedoManager.m         ← Parameter history management (recursive deep copy)
+│   ├── DisplayManager.m          ← Visualization rendering with debounced updates
 │   ├── DataHash.m                ← MD5-based change detection for SVD caching
 │   └── setDefaultParams.m        ← Experiment-specific parameter configuration
-|
+│
 ├── [core/]
-|   |
-│   ├── ULM_Processor.m       ← Main ULM class
-|   |
-|   ├── [detection/]
-|   │   ├── detectBubbles.m       ← Intensity-based regional maxima detection
-|   │   ├── detectBubbles_NCC.m   ← Normalized cross-correlation detection
-|   │   └── detectBubbles_NP.m    ← Neyman-Pearson hypothesis test detection
-|   │
-|   ├── [localization/]
-|   │   ├── localizeRadialSymmetry.m  ← Gradient-based radial symmetry
-|   │   ├── fit2DGaussian.m       ← Full 2D Gaussian NLLS fit
-|   │   └── fit2DGaussian_Fast.m  ← Vectorized fast Gaussian fitting
-|   │
-|   ├── [tracking/]
-|   │   ├── trackNearestNeighbor.m    ← Greedy nearest-neighbor linker
-|   │   ├── trackHungarian.m          ← Global Hungarian assignment
-|   │   ├── trackKalman.m             ← Standard Kalman filter tracker
-|   │   ├── trackKalman_Advanced.m    ← Hierarchical Kalman tracker (HKT)
-|   │   ├── calculateCostMatrix.m     ← Smart Cost Matrix (SCM) engine
-|   │   └── munkres.m                 ← Munkres/Hungarian solver
-|   │
-|   ├── [filtering/]
-|   │   ├── SVD_filter.m          ← Standard SVD clutter filter
-|   │   ├── SVD_SSM.m             ← Spatial Similarity Matrix thresholding
-|   │   ├── SVD_blockwise.m       ← Block-wise adaptive SVD
-|   │   ├── DCC_SVD.m             ← Density Canopy Clustering SVD
-|   │   ├── run_SVD_Decomposition.m
-|   │   ├── reconstruct_SVD_Signal.m
-|   │   └── Butterworth_bandpass_filter.m
-|   │
-|   └── [rendering/]
-|       ├── renderHistogram.m     ← Histogram accumulation (default)
-|       └── renderGaussian.m      ← Gaussian-blurred density map
-|
+│   ├── ULM_Processor.m           ← Main ULM class
+│   ├── [detection/]
+│   │   ├── detectBubbles.m       ← Intensity-based regional maxima detection
+│   │   ├── detectBubbles_NCC.m   ← Normalized cross-correlation detection
+│   │   └── detectBubbles_NP.m    ← Neyman-Pearson hypothesis test detection
+│   ├── [localization/]
+│   │   ├── localizeRadialSymmetry.m  ← Gradient-based radial symmetry
+│   │   ├── fit2DGaussian.m       ← Full 2D Gaussian NLLS fit
+│   │   └── fit2DGaussian_Fast.m  ← Vectorized fast Gaussian fitting
+│   ├── [tracking/]
+│   │   ├── trackNearestNeighbor.m    ← Greedy nearest-neighbor linker
+│   │   ├── trackHungarian.m          ← Global Hungarian assignment
+│   │   ├── trackKalman.m             ← Standard Kalman filter tracker
+│   │   ├── trackKalman_Advanced.m    ← Hierarchical Kalman tracker (HKT)
+│   │   ├── calculateCostMatrix.m     ← Smart Cost Matrix (SCM) engine
+│   │   └── munkres.m                 ← Munkres/Hungarian solver
+│   ├── [filtering/]
+│   │   ├── SVD_filter.m          ← Standard SVD clutter filter
+│   │   ├── SVD_SSM.m             ← Spatial Similarity Matrix thresholding
+│   │   ├── SVD_blockwise.m       ← Block-wise adaptive SVD
+│   │   ├── DCC_SVD.m             ← Density Canopy Clustering SVD
+│   │   ├── run_SVD_Decomposition.m
+│   │   ├── reconstruct_SVD_Signal.m
+│   │   └── Butterworth_bandpass_filter.m
+│   └── [rendering/]
+│       ├── renderHistogram.m     ← Histogram accumulation
+│       └── renderGaussian.m      ← Gaussian-blurred density map
+│
 ├── [config/]
 │   ├── setDefaultParams.m        ← Experiment parameter configuration
 │   └── getExpParams.m            ← Parses info.txt metadata file
@@ -223,86 +205,139 @@ ulm-codebase/
 │
 └── [examples/]
     ├── run_ULM_Analysis_Kidney.m  ← Full batch pipeline script
-    ├── split_ImageData_tot_Kidney.m
-    ├── Bmode_video.m
-    └── Kidney_video.m
+    └── ...
 ```
 
 ---
 
-## 6. Architecture
+## 6. Architectural Deep-Dive
 
-The GUI follows a strict **separation of concerns** with four manager classes, a centralized algorithm registry, and one monolithic main file:
+### 6.1 Design Patterns & Separation of Concerns
+
+The GUI follows a strict **separation of concerns** with four dedicated manager classes, a centralized algorithm registry, and one monolithic main file that houses all layout builders, callbacks, and the registry itself:
 
 ```
 ULM_Master_GUI_v3.m          (Layout builder + all callbacks + algorithm registry)
        │
        ├── getAlgorithmRegistry()  (Central registry: filters, trackers, detectors,
        │                            localizers, renderers, smoothers)
-       ├── ULM_Constants.m        (Read-only: all defaults and limits)
+       ├── ULM_Constants.m        (Read-only: all defaults, limits, validation logic)
        ├── SessionManager.m       (Save/load: serializes the full app struct)
-       ├── UndoRedoManager.m      (History: up to 20 parameter states)
-       └── DisplayManager.m       (Visualization: frame rendering, overlays)
+       ├── UndoRedoManager.m      (History: up to 20 parameter states, recursive deep copy)
+       └── DisplayManager.m       (Visualization: frame rendering, overlays, debouncing)
 ```
 
-### Central Algorithm Registry
+The application state is stored in a single `app` struct that is persisted via `guidata(fig, app)` on the main `uifigure` handle. This struct has three primary sub-structures: `app.data` (all raw data, intermediate results, cached SVD matrices, and the `params` struct), `app.ui` (handles to every widget, panel, and axes), and `app.state` (the pipeline state machine, current frame index, playback state, and timer references). All four manager objects are stored directly on `app` as `app.sessionManager`, `app.undoManager`, `app.displayManager`, and `app.constants`.
 
-The `getAlgorithmRegistry()` function is the single source of truth for every algorithm available in the GUI. It defines the identifier, display name, function handle, associated panel, and tooltip for each method. All dropdowns and dispatch switches are populated from this registry. Adding a new algorithm (e.g., a new tracker or filter variant) requires only adding one entry to the registry — dropdowns, option panels, tooltips, and dispatch switches all pick it up automatically.
+### 6.2 The Central Algorithm Registry
 
-### State Machine
-The GUI state is tracked in `app.state.currentState`, which controls which panels are enabled. States advance sequentially:
+The `getAlgorithmRegistry()` function is the architectural keystone of v3.0. It returns a struct `reg` with six categories — `reg.filter`, `reg.track`, `reg.detect`, `reg.loc`, `reg.render`, and `reg.smoothing` — each of which is a struct array defining every available algorithm in that category. Each entry carries the following fields:
+
+| Field | Purpose |
+|-------|---------|
+| `id` | Machine-readable identifier (e.g., `'svd_filter'`, `'Kalman'`). Used as the dropdown value and dispatch key. |
+| `display` | Human-readable name shown in dropdown menus (e.g., `'Global SVD'`, `'Hierarchical Kalman'`). |
+| `func` | Function name string for dispatch (e.g., `'run_SVD_Decomposition'`, `'trackKalman_Advanced'`). |
+| `panel_field` | Name of the UI panel to show/hide when this method is selected (e.g., `'p_svd'`, `'p_dcc'`). |
+| `tooltip` | Plain-English description attached to the dropdown via the tooltip system. |
+| `isKalman` / `isGaussian` | Boolean flags controlling conditional UI visibility (Kalman settings panel, Gaussian QC panel). |
+| `usesHK` / `showsGain` | Flags for the Hierarchical Kalman and Kalman Trust Balance panel. |
+
+All dropdowns are populated from the registry via `registryIds(reg.filter)`, which extracts the `id` fields. Dispatch switches in `runFilter`, `runDetection`, `runLocalization`, and `runTracking` match against these same IDs. UI panel visibility is toggled by `updateFilterOptions`, `updateTrackingOptions`, etc., which iterate the registry to find the entry matching the current dropdown value and then show/hide the associated panel.
+
+> **Tip:** Adding a new algorithm to the GUI requires exactly one step — add a single entry to the appropriate registry array. Dropdowns, dispatch, tooltips, and option panel visibility all derive from the registry automatically. See Section 15 for a step-by-step guide.
+
+### 6.3 Pipeline State Machine & Downstream Invalidation
+
+The GUI state is tracked in `app.state.currentState`, which controls which panels and buttons are enabled. States advance sequentially:
+
+| Stage Code | Meaning | Unlocked Controls |
+|:----------:|---------|-------------------|
+| -1 | No data loaded | Only Load button active |
+| 0 | Data loaded | Filter tab unlocked |
+| 1 | Filtered | Detect tab unlocked |
+| 2 | Detected | Localize tab unlocked |
+| 3 | Localized | Track tab unlocked |
+| 4 | Tracked | Post-Process tab unlocked |
+| 5 | Post-processed | Render tab unlocked |
+
+The function `manageGUIState(app, stage)` inspects which data fields are populated (e.g., `~isempty(app.data.filteredData)`) and enables or disables the corresponding "Run" buttons accordingly. It uses `matlab.lang.OnOffSwitchState` for safe boolean-to-enable conversion.
+
+**Downstream Invalidation via `clearDownstreamData`:** When a user modifies an early-stage parameter (say, re-running the clutter filter), all subsequent results become stale. The function `clearDownstreamData(data, stage)` enforces data integrity by clearing every field downstream of the given stage. For example, calling `clearDownstreamData(app.data, 1)` after filtering will set `candidateBubbles`, `localizations`, `tracks_raw`, and `tracks_final` to `[]`, forcing the user to re-run detection, localization, tracking, and post-processing. This cascade prevents silent inconsistencies where downstream results do not correspond to the current upstream data.
+
+The invalidation logic uses a simple waterfall:
 
 ```
--1 → No data loaded    (only Load button active)
- 0 → Data loaded       (Filter tab unlocked)
- 1 → Filtered          (Detect tab unlocked)
- 2 → Detected          (Localize tab unlocked)
- 3 → Localized         (Track tab unlocked)
- 4 → Tracked           (Post-Process tab unlocked)
- 5 → Post-processed    (Render tab unlocked)
+Stage < 1  →  clear filteredData, candidateBubbles, localizations, tracks_raw, tracks_final
+Stage < 2  →  clear candidateBubbles, localizations, tracks_raw, tracks_final
+Stage < 3  →  clear localizations, tracks_raw, tracks_final
+Stage < 4  →  clear tracks_raw, tracks_final
+Stage < 5  →  clear tracks_final
 ```
 
-### SVD Caching
-SVD decomposition (the most expensive step) is cached using a data hash (`DataHash.m`). If the raw data and cutoff range have not changed since the last computation, the cached `U`, `S`, `V` matrices are reused. This makes slider adjustments for SVD cutoff **instantaneous**.
+Every processing callback (e.g., `runFilter`, `runDetection`) calls `clearDownstreamData` after storing its own results, then calls `manageGUIState` to update button states.
 
-### Debounced Display
-Display updates triggered by sliders are debounced with a 50 ms delay (configurable in `ULM_Constants.DEBOUNCE_DELAY`) to prevent UI freezing during rapid slider movement.
+### 6.4 SVD Caching via DataHash
 
-### Fallback Parameter System
-If `setDefaultParams.m` is missing or throws an error, the GUI constructs a complete fallback parameter struct via `createFallbackParams()`, then fills any remaining gaps with `ensureAllParamFields()`. A warning dialog informs the user that fallback defaults are in use.
+SVD decomposition is the most computationally expensive step in the pipeline. For a 122×260×1500 dataset, the Casorati matrix is 31,720×1500, and computing its full SVD can take tens of seconds. However, once computed, the SVD need not be recomputed if only the cutoff range changes — the user can reconstruct any band-pass filtered signal as:
+
+$$X_{filtered} = U \cdot \text{diag}(S_{[c_1:c_2]}) \cdot V^*$$
+
+where $c_1$ and $c_2$ are the cutoff start and end indices. This reconstruction is an $O(N \cdot K)$ matrix multiply (where $K = c_2 - c_1$ is typically small), making it effectively instantaneous.
+
+The caching mechanism uses `DataHash.m`, which computes an MD5 hash of the raw data array using Java's `java.security.MessageDigest`. The hash is stored in `app.data.rawDataHash` as a composite key combining the data hash and the filter method (e.g., `'a3f7c1...2d_svd_filter'`). Before computing a new SVD, the filter callback checks whether `app.data.U` is non-empty and the stored hash matches the current data+method. If so, it skips directly to `reconstruct_SVD_Signal`. For complex (IQ) data, `DataHash` interleaves the real and imaginary parts before hashing to ensure sensitivity to phase changes.
+
+The `DataHash` function also includes a fallback for environments where the JVM is unavailable (e.g., compiled MATLAB): it constructs a fingerprint from the array dimensions, class, first/last element, and sum.
+
+> **Tip:** Slider adjustments to SVD cutoffs after the first filter run are instantaneous because they only call `reconstruct_SVD_Signal` on the cached `U`, `S`, `V` matrices. Only changing the raw data or the filter method triggers a full recomputation.
+
+### 6.5 Debounced Display & the DisplayManager
+
+`DisplayManager` is a `handle` class that encapsulates all visualization logic. Its primary entry point, `displayFrame(app)`, routes rendering to specialized methods based on `app.state.currentState`: `displayRawData` (state 0), `displayFilteredData` (state 1), `displayDetectionResults` (state 2 — overlays red `×` markers), `displayLocalizations` (state 3 — overlays red dots), `displayRawTracks` (state 4 — colored polylines on a mean projection), and `displayProcessedTracks` (state 5 — smoothed polylines filtered by minimum length).
+
+Every displayed image passes through `processImageForDisplay(app, rawImg)`, which applies the following chain from the Visual Adjustments sidebar: absolute value → optional log compression ($20 \cdot \log_{10}(|x| + \epsilon)$) → optional mat2gray normalization → gamma stretch ($x^\gamma$). After image display, `applyAxesDisplaySettings` sets the colormap from the dropdown and either auto-scales or applies manual CLim.
+
+The **debouncing mechanism** protects the UI thread from being overwhelmed by rapid slider movements. The `debouncedDisplay(fig, delay)` method creates a single-shot `timer` with a configurable delay (default: `ULM_Constants.DEBOUNCE_DELAY = 50 ms`). Each new call cancels the previous timer and starts a fresh one. Only when the user pauses slider movement for 50 ms does the actual display refresh fire. This prevents dozens of redundant `imagesc` calls during a single drag gesture.
+
+The `DisplayManager` also pre-computes and caches a `lines(256)` colormap for track rendering to avoid recomputation on every frame.
+
+### 6.6 Deep Serialization via SessionManager
+
+`SessionManager` is a `handle` class responsible for creating complete workspace snapshots and restoring them. Its `createSessionData(app)` method serializes the following into a single struct: version string (`'3.0'`), timestamp, the complete `params` struct, all data arrays (raw data, filtered data, candidate bubbles, localizations, raw tracks, final tracks, mask, SVD components, DCC cluster indices, block-wise diagnostics), and the current GUI state (pipeline stage, frame index, selected tab, slider limits).
+
+The v3.0 `SessionManager` includes a dual-interface design: the original `createSessionData`/`restoreSessionData` pair operates directly on the `app` struct, while the newer `createSession`/`restoreSession` pair provides a flatter API that separates `data` and `params` outputs. The `restoreSession` method reconstructs all derived quantities (color limits via percentile computation, mean projections, etc.) that are not explicitly stored in the session.
+
+Session files use MATLAB's `-v7.3` format (HDF5 backend) to support variables larger than 2 GB. After loading, `ensureAllParamFields()` is called to fill any fields that may be missing in sessions saved with older versions of the codebase, ensuring forward compatibility.
+
+### 6.7 UndoRedoManager & Parameter History
+
+`UndoRedoManager` is a `handle` class that maintains two cell-array stacks — `undoStack` and `redoStack` — each entry containing a timestamped deep copy of the full `params` struct and an operation label. The maximum stack depth is configurable via `ULM_Constants.MAX_UNDO_STATES` (default: 20).
+
+The **deep copy** is critical because MATLAB structs use copy-on-write semantics that can lead to unexpected aliasing when handle objects are involved. The `deepCopy` method recursively traverses the struct tree, copying every nested struct and cell array element by value.
+
+The v3.0 `undo(currentParams)` method pushes the caller-supplied `currentParams` onto the redo stack before popping the previous state from the undo stack, enabling clean round-trip undo/redo. Any new parameter change (via `push`) clears the redo stack, following the standard "branching" undo model.
+
+After undo/redo, `populateGUIFromParams(fig)` is called to synchronize all UI controls to the restored parameter values, using the `setSafe` helper which gracefully handles type mismatches, missing controls, and out-of-range slider values.
+
+### 6.8 Fallback Parameter System
+
+If `setDefaultParams.m` is absent from the MATLAB path or throws an error, the GUI constructs a complete fallback parameter struct via `createFallbackParams()`. This function defines every field the GUI expects across all pipeline stages — IO, processing, acquisition, filter, localization/detection, tracking (including full Kalman and QC sub-structs), rendering, and analysis — with safe, conservative default values (e.g., FPS: 200, pixel size: 0.05 mm, SVD cutoff: [5, 100]). After construction, `ensureAllParamFields()` fills any remaining gaps. A warning dialog informs the user that fallback defaults are in use.
+
+### 6.9 Global Tooltip System
+
+The function `getTooltipDictionary()` returns a struct mapping UI handle names (e.g., `'SVDCutoffStart'`, `'KalmanNoise'`) to plain-English descriptions that include the pipeline stage each parameter belongs to and its effect. At startup, `applyTooltips(app)` iterates every entry in this dictionary and, if a matching handle exists in `app.ui` with a `Tooltip` property, attaches the description. This provides a built-in mini user-guide without leaving the interface.
 
 ---
 
-## 7. Launching the GUI
-
-```matlab
-% Simply run from the MATLAB command window:
-ULM_Master_GUI_v3
-```
-
-The GUI will:
-1. Attempt to load default parameters via `setDefaultParams.m`
-2. Run `ensureAllParamFields()` to fill any missing parameter fields
-3. Fall back to safe system defaults via `createFallbackParams()` if `setDefaultParams.m` is missing or fails
-4. Display a warning dialog if the fallback was used
-5. Open a 1600×1000 px figure window
-6. Apply hover tooltips to all controls via the global tooltip system
-
----
-
-## 8. Input Data Format
+## 7. Input Data Format
 
 ### Required Format
-- **File type:** `.mat` (MATLAB data file)
-- **Variable:** Any 3D numeric array of shape `[Nz × Nx × Nt]`
-  - `Nz` = number of axial pixels (image height)
-  - `Nx` = number of lateral pixels (image width)
-  - `Nt` = number of frames (time dimension)
-- The GUI automatically detects 3D numeric arrays in the loaded `.mat` file regardless of the variable name.
-- Both real and complex (IQ) data types are supported; complex data is displayed using `abs()`.
+
+The GUI accepts `.mat` files containing any 3D numeric array of shape `[Nz × Nx × Nt]`, where `Nz` is the number of axial pixels, `Nx` is the number of lateral pixels, and `Nt` is the number of frames. The variable name is irrelevant — the loader (`loadRawData`) automatically scans the file for the first 3D numeric field. Both real and complex (IQ) data types are supported; complex data is displayed using `abs()`.
 
 ### Physical Calibration
-Physical pixel sizes are read from `info.txt` (via `getExpParams.m`) or set manually in the GUI's **Fundamental Parameters** section in the menu bar:
+
+Physical pixel sizes and frame rate are set in the menu bar's **Fundamental Parameters** section:
 
 | Parameter | Description | Typical Value |
 |-----------|-------------|---------------|
@@ -310,19 +345,11 @@ Physical pixel sizes are read from `info.txt` (via `getExpParams.m`) or set manu
 | `Px X (mm)` | Lateral pixel size | ~0.05–0.1 mm |
 | `Px Z (mm)` | Axial pixel size | ~0.05–0.1 mm |
 
-These values affect all downstream physical calculations (velocity in mm/s, linking distances in mm).
-
-### Example: Loading Data
-```matlab
-% Data must be a 3D array in a .mat file:
-data = rand(122, 260, 1500);   % [Nz x Nx x Nt]
-save('my_data.mat', 'data');
-% Then click "Load Data (IQ / imageData)" in the GUI
-```
+These values propagate to all downstream physical calculations: velocities in mm/s, linking distances in mm, scale bars, and the super-resolution grid.
 
 ---
 
-## 9. GUI Layout
+## 8. GUI Layout Reference
 
 The interface is divided into three functional zones:
 
@@ -346,511 +373,446 @@ The interface is divided into three functional zones:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Menu Bar
+### Menu Bar Elements
+
 | Element | Function |
 |---------|----------|
-| Load Work Session | Restores a previously saved complete GUI state |
-| Save Work Session | Saves all data, parameters, and results to a `.mat` file |
+| Load Work Session | Restores a previously saved complete GUI state from a `.mat` file |
+| Save Work Session | Saves all data, parameters, and results to a `.mat` file (HDF5, `-v7.3`) |
 | Undo | Reverts last parameter change (up to 20 levels) |
 | Redo | Re-applies an undone change |
-| Memory: X GB | Real-time RAM usage monitor (auto-updates every 2 s) |
-| FPS | Acquisition frame rate — editable in-place |
-| Px X (mm) | Lateral pixel size — editable in-place |
-| Px Z (mm) | Axial pixel size — editable in-place |
-
-### Visual Adjustments Panel (Left Sidebar)
-A persistent panel on the left side of the visualization canvas provides display controls that apply to every processing stage:
-
-| Control | Description |
-|---------|-------------|
-| **Normalize (mat2gray)** | Normalize frame to [0, 1] for display |
-| **Log Compression** | Apply logarithmic compression for high dynamic range data |
-| **Gamma (Stretch)** | Gamma correction slider (0.1–5.0) for contrast adjustment |
-| **Colormap** | Choose from `gray`, `hot`, `jet`, `parula` |
-| **Auto CLim** | Automatically compute color limits per frame |
-| **CLim [Min, Max]** | Manual color limit override when Auto CLim is off |
+| Memory: X GB | Real-time RAM usage monitor (auto-updates every `ULM_Constants.MEMORY_UPDATE_INTERVAL` = 2 s) |
+| FPS | Acquisition frame rate — editable in-place, propagates to `params.acq.framerate` |
+| Px X / Px Z (mm) | Pixel sizes — editable in-place, propagate to `params.track.pixel_X_size` / `pixel_Z_size` |
 
 ### Status Bar
-The status lamp and label in the bottom-right indicate the current state:
-- 🟢 **Green** — Ready / operation complete
-- 🔴 **Red** — Processing in progress
-- 🔵 **Blue** — Informational (e.g., "Undo complete")
-- 🟠 **Orange** — Warning
 
-### Tooltip System
-Hovering over any control displays a tooltip describing the parameter, which pipeline stage it belongs to, and its effect. Tooltips are defined in `getTooltipDictionary()` and attached globally via `applyTooltips()` at startup.
+The status lamp and label in the bottom-right indicate the current state: green (Ready / operation complete), red (Processing in progress), blue (Informational, e.g., "Undo complete"), orange (Warning).
 
 ---
 
-## 10. Workflow — Tab by Tab
+## 9. Tab-by-Tab Technical Guide
 
 ### Tab 1: Filter
 
-**Purpose:** Remove stationary tissue clutter (high-energy, temporally coherent) from the IQ data, retaining the dynamic microbubble signal.
+**Functional Purpose:** Remove stationary tissue clutter (high-energy, temporally coherent) from the IQ data, retaining the dynamic microbubble signal. Tissue clutter dominates the first singular values of the spatiotemporal Casorati matrix, while noise occupies the last. The bubble signal resides in the intermediate band.
 
-#### Step A: Spatial Crop (Optional)
-Before filtering, you can spatially crop the dataset to a sub-region of interest. This significantly reduces SVD computation time.
+#### Step A: Spatial Crop (Optional, Pre-SVD)
 
-| Control | Description |
-|---------|-------------|
-| **Crop Box [x y w h]** | Manual entry of crop rectangle coordinates |
-| **Interactive Crop** | Interactively draw a crop rectangle on the visualization canvas |
-| **Load Crop** | Load a previously saved `cropBox.mat` |
-| **Save Crop** | Export the current crop rectangle for reuse |
-| **Apply Crop to Data** | Permanently apply the crop to raw data (clears undo history) |
+Spatial cropping reduces the Casorati matrix dimensions before SVD, yielding significant speedups. For a 122×260 frame, the Casorati matrix has 31,720 rows. Cropping to a 60×130 ROI reduces this to 7,800 rows — a 4× reduction that translates to approximately 16× SVD speedup because SVD complexity is super-linear in the matrix dimensions.
 
-> **Why crop?** For a 122×260 frame, SVD operates on a 31,720×Nt matrix. Cropping to a 60×130 ROI reduces this by 4×, giving a ~16× speedup.
+| Control | Description | Source |
+|---------|-------------|--------|
+| **Crop Box [x y w h]** | Manual entry of crop rectangle coordinates (pixels) | `app.ui.CropBoxField` |
+| **Interactive Crop** | Opens a figure with `drawrectangle` for interactive ROI selection | `runInteractiveCrop` |
+| **Load Crop** | Load a previously saved `cropBox.mat` | `loadCrop` |
+| **Save Crop** | Export the current crop rectangle for reuse | `saveCrop` |
+| **Apply Crop to Data** | Permanently crops `rawData` — destructive within session | `applyCrop` |
 
-> **Note:** Applying a crop is a destructive operation within the current session — the raw data is replaced by the cropped sub-region, the SVD cache is invalidated, the mask is cleared, and the undo history is reset. A confirmation dialog is shown before proceeding.
+> **Warning:** Applying a crop is a destructive operation within the current session. The raw data is replaced by the cropped sub-region, the SVD cache is invalidated, the mask is cleared, and the undo history is reset. A confirmation dialog is shown before proceeding.
 
 #### Step B: Clutter Filter Method
 
-Select one of four available methods from the **Filter Method** dropdown. The dropdown is populated from the central algorithm registry.
+Select from four methods, each populated from `getAlgorithmRegistry().filter`:
 
----
+**`svd_filter` — Global SVD Filter.** The baseline method. Decomposes the Casorati matrix $X = U \Sigma V^*$ and retains only singular values within the specified range $[c_1, c_2]$:
 
-**`svd_filter` — Global SVD Filter**
+$$X_{filtered} = \sum_{i=c_1}^{c_2} \sigma_i \cdot u_i \cdot v_i^*$$
 
-The baseline method. Decomposes the Casorati matrix `X = UΣV*` and retains only singular values within the specified range `[Cutoff Start, Cutoff End]`.
+| Parameter | Default (`ULM_Constants`) | Code Field | Description |
+|-----------|--------------------------|------------|-------------|
+| Cutoff Start | 1 (`DEFAULT_SVD_CUTOFF(1)`) | `params.filter.svd_cutoff(1)` | First singular value index to keep. Indices below are discarded as tissue clutter. |
+| Cutoff End | 100 (`DEFAULT_SVD_CUTOFF(2)`) | `params.filter.svd_cutoff(2)` | Last singular value index to keep. Indices above are discarded as noise. |
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Cutoff Start** | 4 | First singular value index to keep. Values below this (indices 1 to Cutoff Start-1) are discarded as tissue clutter. Increase to remove more tissue. |
-| **Cutoff End** | 450 | Last singular value index to keep. Values above this are discarded as noise. Decrease to remove noise; increase to retain more signal. |
+The full SVD is computed once via `run_SVD_Decomposition` and cached. Subsequent slider adjustments call only `reconstruct_SVD_Signal`, which is instantaneous.
 
-> **Caching:** The full SVD decomposition (`U`, `Σ`, `V`) is computed once and cached. Subsequent slider adjustments reconstruct the filtered data instantly from the cache without recomputation.
+**`svd_ssm` — SVD with Spatial Similarity Matrix (SSM).** Implements the method of Baranger et al. (2023). Calculates the Pearson correlation between absolute values of spatial singular vectors ($U$) to identify the transition boundary between tissue-dominated and bubble-dominated components automatically. Uses the same Cutoff Start/End sliders as the standard SVD but provides a statistical guide for setting the upper cutoff.
 
-> **Tuning guide:** Start with a broad range (e.g., [4, 1000]). Gradually increase Cutoff Start until tissue clutter disappears. Gradually decrease Cutoff End until background noise is suppressed. Optimal range isolates moving bubbles.
+**`dcc_svd` — Density Canopy Clustering SVD.** Implements the DCC-SVD method of Han et al. (2024). Each singular component is characterized by a 3D feature vector: normalized log-energy, power-weighted central temporal frequency, and spatial correlation to the mean spatial vector. K-means clustering (seeded by density canopy centers) partitions components into "Tissue", "Blood", and "Noise" clusters. Interactive sliders on the DCC panel allow manual fine-tuning of cluster boundaries after the initial automatic classification. The GUI caches the DCC-computed SVD components (`U`, `S`, `V`) and the cluster indices (`tissue_indices`, `blood_indices`, `noise_indices`) so that boundary adjustments reconstruct the signal instantly.
 
----
+| Parameter | Description |
+|-----------|-------------|
+| Tissue Start/End (%) | Percentage range of the tissue cluster |
+| Blood Start/End (%) | Percentage range of the blood cluster |
+| Noise Start/End (%) | Percentage range of the noise cluster |
 
-**`svd_ssm` — SVD with Spatial Similarity Matrix (SSM)**
+**`svd_blockwise` — Block-Wise Adaptive SVD.** Implements the method of Song et al. (2017). Divides the image into overlapping spatial blocks and applies independent adaptive SVD thresholding to each block, accounting for spatially varying clutter characteristics. The dedicated parameter panel appears when this method is selected:
 
-Implements the method of Baranger et al. [2023]. Calculates the Pearson correlation between absolute values of spatial singular vectors (`U`) to identify the transition boundary between tissue-dominated and bubble-dominated components automatically.
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Cutoff Start** | 4 | Lower bound (same interpretation as standard SVD) |
-| **Cutoff End** | 450 | Upper bound; the SSM provides a statistical guide for this |
-
-> **When to use:** When manual SVD thresholding is ambiguous. The SSM correlation matrix provides an objective visual cutoff.
-
----
-
-**`dcc_svd` — Density Canopy Clustering SVD**
-
-Implements the DCC-SVD method of Han et al. [2024]. Each singular component is characterized by a 3D feature vector:
-1. Normalized log-energy
-2. Power-weighted central temporal frequency
-3. Spatial correlation to the mean spatial vector
-
-K-means clustering (seeded by density canopy centers) then partitions components into "Tissue", "Blood", and "Noise" clusters. Interactive sliders allow manual adjustment of cluster boundaries after the initial automatic classification.
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Tissue Start/End (%)** | Auto | Percentage range of tissue cluster |
-| **Blood Start/End (%)** | Auto | Percentage range of blood cluster |
-| **Noise Start/End (%)** | Auto | Percentage range of noise cluster |
-
-> **When to use:** For fully automated thresholding without manual SVD tuning. Particularly effective when tissue and bubble signatures are spectrally similar.
-
----
-
-**`svd_blockwise` — Block-Wise Adaptive SVD**
-
-Divides the image into overlapping spatial blocks and applies independent adaptive SVD thresholding to each block. Accounts for spatially varying clutter characteristics. When this filter is selected, a dedicated parameter panel appears.
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Threshold Method** | DopplerGradient | Strategy for determining per-block SVD cutoff: `DopplerGradient`, `SSM`, `Hybrid`, or `Manual` |
-| **Manual Cutoff [Lo Hi]** | [10 200] | Only visible when Threshold Method is `Manual`. Manual SVD cutoff range per block. |
-| **Block Size (mm)** | 4.0 mm | Spatial extent of each processing block (square). |
-| **Overlap (%)** | 75% | Block overlap percentage. Higher overlap = better reconstruction quality but slower computation. Use 75% for exploratory runs, 93.75% for publication-quality results. |
-| **MP Deviation (σ)** | 2.0 | Marchenko-Pastur sensitivity for the high cutoff. Higher value = fewer components classified as blood. |
-| **Gradient Inflection (%)** | 0.10 | Sensitivity of inflection detection for Cutoff 1A. Lower = earlier inflection detection. |
-| **Tissue Freq Thr (Hz)** | -1 (auto) | Tissue Doppler frequency threshold. Set to -1 for automatic estimation: `max(5, min(20, framerate/50))`. Increase (e.g., 15 Hz) for fast-moving tissue. |
-| **Min Blood Comps** | 3 | Minimum number of blood components per block (floor constraint). |
-| **Max Tissue Fraction** | 0.60 | Maximum fraction of singular values classifiable as tissue (ceiling constraint). |
-| **Plot threshold maps** | Off | If enabled, displays spatial threshold maps after filtering. |
-
----
+| Parameter | Default | Code Field | Description |
+|-----------|---------|------------|-------------|
+| Threshold Method | `DopplerGradient` | `params.filter.blockwise.threshold_method` | Strategy for per-block cutoff: `DopplerGradient`, `SSM`, `Hybrid`, or `Manual` |
+| Manual Cutoff [Lo Hi] | [10 200] | `params.filter.blockwise.manual_cutoff` | Only visible when Method = `Manual` |
+| Block Size (mm) | 4.0 | `params.filter.blockwise.block_size_mm` | Spatial extent of each processing block |
+| Overlap (%) | 75 | `params.filter.blockwise.overlap_pct` | Block overlap. 75% for exploratory, 93.75% for publication-quality |
+| MP Deviation (σ) | 2.0 | `params.filter.blockwise.mp_deviation_sigma` | Marchenko-Pastur sensitivity for the high cutoff |
+| Gradient Inflection (%) | 0.10 | `params.filter.blockwise.gradient_pct` | Sensitivity of inflection detection for Cutoff 1A |
+| Tissue Freq Thr (Hz) | -1 (auto) | `params.filter.blockwise.tissue_freq_hz` | Set to -1 for automatic: `max(5, min(20, framerate/50))` |
+| Min Blood Comps | 3 | `params.filter.blockwise.min_blood_comps` | Floor constraint on blood components per block |
+| Max Tissue Fraction | 0.60 | `params.filter.blockwise.max_tissue_frac` | Ceiling on the fraction classified as tissue |
+| Plot threshold maps | Off | `params.filter.blockwise.plot_maps` | Display spatial threshold maps after filtering |
 
 #### Step C: Butterworth Bandpass Filter (Optional)
 
 An auxiliary temporal frequency filter applied after SVD to further isolate the bubble signal within a specific frequency band.
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Enable** | Off | Master switch |
-| **Cutoff [Low, High] (Hz)** | [50, 250] | Passband frequencies. Tune based on expected bubble velocity and acquisition framerate. |
-| **Order** | 2 | Filter order. Higher order = sharper rolloff. |
+| Parameter | Default | Code Field | Description |
+|-----------|---------|------------|-------------|
+| Enable | Off | `params.filter.enable_butterworth` | Master switch |
+| Cutoff [Low, High] (Hz) | [10, 100] | `params.filter.butter_cutoff` | Passband frequencies |
+| Order | 4 | `params.filter.butter_order` | Filter order; higher = sharper rolloff |
 
-> **When to use:** Primarily for high-frame-rate datasets (≥1000 Hz) where specific frequency isolation is needed, or as a supplement to SVD when slow-moving bubble signals partially overlap with tissue.
+Validation is performed via `ULM_Constants.isValidButterCutoff(cutoff, framerate)`, which ensures the upper cutoff is below the Nyquist frequency.
 
 #### Step D: Spatial Filter (Optional)
 
-A per-frame spatial convolution filter for additional noise reduction. Controls are shown and hidden dynamically depending on the selected method.
+A per-frame spatial convolution filter for additional noise reduction. Controls are shown and hidden dynamically depending on the selected method:
 
-| Parameter | Options | Description |
-|-----------|---------|-------------|
-| **Method** | `None`, `Gaussian`, `Median`, `DoG`, `Top-Hat` | Type of spatial filter |
-| **Kernel Size (px)** | Default: 3 | Filter kernel size (must be odd). Shown for Gaussian, Median, Top-Hat. |
-| **Sigma 1** | Default: 1.0 | Primary Gaussian sigma. Shown for Gaussian and DoG. |
-| **Sigma 2** | Default: 2.0 | Secondary sigma. Shown for Difference-of-Gaussians only. |
+| Parameter | Options | Default | Description |
+|-----------|---------|---------|-------------|
+| Method | `None`, `Gaussian`, `Median`, `DoG`, `Top-Hat` | `Gaussian` | Type of spatial filter |
+| Kernel Size (px) | — | 3 | Filter kernel size (must be odd). Visible for Gaussian, Median, Top-Hat. |
+| Sigma 1 | — | 1.0 | Primary Gaussian sigma. Visible for Gaussian and DoG. |
+| Sigma 2 | — | 2.0 | Secondary sigma. Visible for DoG only. |
 
-#### Running the Filter
-Click **"Run Filter"**. The status lamp turns red during processing and green upon completion. The visualization canvas updates to show the filtered frame.
+The `updateSpatialOptions` callback dynamically shows/hides the kernel, sigma1, and sigma2 controls based on the selected method.
 
 ---
 
 ### Tab 2: Detect
 
-**Purpose:** Identify candidate bubble locations in the filtered frames as integer-pixel regional maxima.
+**Functional Purpose:** Identify candidate bubble locations in the filtered frames as integer-pixel regional maxima, constrained by an optional vessel mask to reduce false positives and computation.
 
 #### Step A: ROI Masking (Vessel Map)
 
-Restricts detection to anatomically relevant regions, reducing false positives and computation.
+The upper half of Tab 2 provides both manual mask loading and algorithmic vessel masking.
 
-**Manual ROI:**
+**Manual mask controls:** Load Mask (loads a binary `.mat` file), Create New Mask (commits the current ROI preview as the active detection mask), Reset Mask (clears the loaded mask), Save Mask (exports to `.mat`), and a status indicator.
 
-| Control | Description |
-|---------|-------------|
-| **Load Mask** | Load a pre-existing binary mask (`Mask.mat`) |
-| **Create New Mask** | Interactively draw a polygon mask on the canvas |
-| **Reset Mask** | Clear the currently loaded mask |
-| **Save Mask** | Export the current mask to `Mask.mat` |
-| **Status: None/Loaded** | Indicator showing current mask state |
-
-**Algorithmic Vessel Masking (Auto-Mask):**
-
-Generates a "Flow Probability Mask" from the temporal average of the SVD-filtered sequence. An intensity histogram (log scale) is displayed alongside the controls for real-time visual feedback.
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **1. Enhancement Method** | `None` | `None`, `CLAHE (Local Contrast)`, `Top-Hat (Vesselness)`, or `Sharpen` |
-| **Enhancement Strength** | 0.5 | Enhancement intensity (0 to 1) |
-| **2. Gamma** | 1.0 | Contrast adjustment (< 1 = brighter, > 1 = darker). Linked slider and numeric field. |
-| **3. Threshold** | 0.0 | Binary threshold applied to the enhanced temporal average image. Linked slider and numeric field. |
-
-**Enhancement methods explained:**
-
-| Method | Best For | Effect of Strength Slider |
-|--------|----------|--------------------------|
-| **CLAHE** | Uniform regions with low local contrast | Controls clip limit (higher = more contrast enhancement) |
-| **Top-Hat** | Vessel-like elongated structures | Controls structural element radius (vessel width estimate) |
-| **Sharpen** | Improving edge definition | Controls sharpening intensity |
-
-#### Step B: Detection Parameters
+**Algorithmic Auto-Mask (Flow Probability Mask):** Generates a mask from the temporal average of the SVD-filtered sequence. The temporal mean image is computed with square-root compression ($\sqrt{\overline{|x|}}$), then processed through an enhancement pipeline with real-time histogram feedback:
 
 | Parameter | Default | Range | Description |
 |-----------|---------|-------|-------------|
-| **Detection Method** | `Intensity` | `Intensity`, `NP`, `NCC` | Algorithm for finding candidate peaks. Method-specific parameters are shown/hidden automatically. |
-| **Intensity Threshold** | 0.15 | 0.01–1.0 | Normalized intensity threshold. Candidates below this fraction of the frame's maximum are rejected. Lower = more candidates (higher sensitivity), higher = fewer candidates (higher specificity). |
-| **Max Bubbles/Frame** | 100 | 1–5000 | Maximum number of candidates retained per frame. **Critical:** if the detected count equals this limit, the algorithm is saturated and valid bubbles are being missed. Increase until the detected count drops below the limit. |
+| Enhancement Method | `None` | `None`, `CLAHE`, `Top-Hat`, `Sharpen` | Image enhancement algorithm |
+| Enhancement Strength | 0.5 | 0–1 | Enhancement intensity |
+| Gamma | 1.0 | 0.1–3.0 | Contrast adjustment ($I' = I^\gamma$) |
+| Threshold | 0.0 | 0–1.1 | Binary threshold for mask generation |
+
+The enhancement methods operate as follows. **CLAHE** (Contrast Limited Adaptive Histogram Equalization) uses `adapthisteq` with the clip limit controlled by the Strength slider: `clipLim = 0.001 + strength × 0.04`, and 8×8 tiles. **Top-Hat** filtering uses `imtophat` with a disk structural element whose radius is `1 + round(strength × 10)`, extracting vessel-like structures. **Sharpen** uses `imsharpen` with `Amount = strength × 2`.
+
+The histogram panel (`axHist`) displays the intensity distribution of the enhanced image in log scale, with a red vertical line at the current threshold value. As the user adjusts any parameter, the enhancement is re-applied in real-time via `applyVesselEnhancement`, the histogram updates, and the mask overlay on the main canvas refreshes.
+
+#### Step B: Detection Parameters
+
+| Parameter | Default (`ULM_Constants`) | Range | Code Field | Description |
+|-----------|--------------------------|-------|------------|-------------|
+| Detection Method | `Intensity` | `Intensity`, `NP`, `NCC` | `params.loc.DetectMethod` | Algorithm for finding candidate peaks |
+| Intensity Threshold | 0.3 (`DEFAULT_DETECTION_THRESHOLD`) | 0.01–1.0 | `params.loc.detection_threshold` | Normalized intensity threshold |
+| Max Bubbles/Frame | 2000 (`DEFAULT_MAX_BUBBLES_PER_FRAME`) | 1–5000 | `params.loc.max_bubbles_per_frame` | Maximum candidates per frame |
+| PSF FWHM [x z] (px) | [1.5, 1.5] (`DEFAULT_FWHM`) | — | `params.loc.fwhm` | Estimated PSF size in pixels |
+| Peak Contrast (h) | 0 | 0–0.5 | `params.loc.h_contrast` | H-maxima contrast for dense-field mode |
 
 **Detection Methods:**
 
-| Method | Description | Key Parameter |
-|--------|-------------|---------------|
-| **Intensity** | Regional maxima above a normalized intensity threshold. Fast and robust. | `Intensity Threshold` |
-| **NP (Neyman-Pearson)** | Hypothesis test with controlled false alarm rate. Statistically rigorous. | `NP alpha0` (false alarm rate, e.g., 1e-4) |
-| **NCC (Normalized Cross-Correlation)** | Template matching with a reference PSF (Gaussian or experimental). If no PSF template is loaded, the GUI offers to auto-generate one from the current FWHM. | `NCC tau` (minimum correlation, e.g., 0.7) |
+**Intensity** (`detectBubbles.m`): Regional maxima above a normalized intensity threshold. Fast and robust. The threshold is applied as a fraction of the frame's maximum intensity.
 
-**PSF FWHM (Full Width at Half Maximum):**
+**Neyman-Pearson** (`detectBubbles_NP.m`): A hypothesis-test detector with controlled false alarm rate. The null hypothesis is that a pixel belongs to background noise. The key parameter `NP_alpha0` (default: 0.01) sets the false alarm probability $P_{FA} = \alpha_0$, from which the detection threshold is derived from the noise statistics.
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **FWHM [x z] (px)** | [3, 3] | Estimated PSF size in pixels. Defines the ROI size around each candidate for the subsequent localization step. Should approximate the bubble's appearance in the filtered image. |
+**Normalized Cross-Correlation** (`detectBubbles_NCC.m`): Template matching against a reference PSF kernel. If no PSF template (`MB_image`) is loaded, the GUI offers to auto-generate one from the current FWHM setting: $\text{PSF}(x,z) = \exp\left(-\frac{x^2}{2\sigma_x^2} - \frac{z^2}{2\sigma_z^2}\right)$ where $\sigma = \text{FWHM}/2.355$. The key parameter `NCC_tau` (default: 0.7) sets the minimum correlation coefficient for peak acceptance.
 
-#### Running Detection
-Click **"Run Detection"**. Detected candidates are overlaid as red markers on the visualization canvas. The status bar displays the count per frame (e.g., "141 bubbles detected").
-
-> **Saturation check:** If the status reads exactly `Max Bubbles/Frame` candidates, increase the limit.
+> **Tip (Saturation Check):** If the status bar reports a detection count exactly equal to `Max Bubbles/Frame`, the detector is saturated and valid bubbles are being missed. Increase the limit until the detected count drops below it.
 
 ---
 
 ### Tab 3: Localize
 
-**Purpose:** Refine integer-pixel candidate positions to sub-pixel precision using the PSF geometry.
+**Functional Purpose:** Refine integer-pixel candidate positions to sub-pixel precision using the PSF geometry.
 
-#### Localization Method
+#### Localization Methods
 
-| Method | Algorithm | Speed | Precision | Best For |
-|--------|-----------|-------|-----------|---------|
-| **`radial`** | Gradient-based radial symmetry (Parthasarathy, 2012) | Fast (non-iterative) | High | High-throughput, moderate SNR |
-| **`gaussian_fit`** | 2D Gaussian NLLS (Levenberg-Marquardt) | Slow (iterative) | Highest (Gold Standard) | Low-count, high-SNR data |
-| **`gaussian_fit_fast`** | Vectorized Gaussian fitting with parallel processing | Medium | High | Large datasets with Parallel Computing Toolbox |
+| Method | Algorithm | Speed | Precision | Registry Flag |
+|--------|-----------|-------|-----------|---------------|
+| `radial` | Gradient-based radial symmetry (Parthasarathy, 2012) | Fast (non-iterative) | High | `isGaussian: false` |
+| `gaussian_fit` | 2D Gaussian NLLS (Levenberg-Marquardt) | Slow (iterative) | Highest | `isGaussian: true` |
+| `gaussian_fit_fast` | Vectorized/linearized Gaussian fitting | Medium | High | `isGaussian: true` |
 
-The sub-pixel center `(x̂, ŷ)` for Radial Symmetry is the weighted least-squares intersection of gradient lines:
+**Radial Symmetry Localization.** The sub-pixel center $(\hat{x}, \hat{y})$ is the weighted least-squares intersection of gradient lines emanating from each pixel in the ROI:
 
-```
-weights = |∇I|²   (pixels on PSF slopes carry most information)
-```
+$$\text{weights} = |\nabla I|^2$$
 
-The Gaussian model is:
-```
-I(x,y) = A · exp(−((x−x₀)² + (y−y₀)²) / 2σ²) + C
-```
+Pixels on the PSF slopes carry the most information (highest gradient magnitude), naturally weighting the center estimate toward the highest-SNR pixels. This is a closed-form, non-iterative solution requiring no initial guess. Key internal thresholds: `min_gradient_squared` ($10^{-6}$, rejects flat regions) and `min_determinant` ($10^{-6}$, rejects numerically unstable fits).
+
+**Gaussian Fit Localization.** Fits the parametric model:
+
+$$I(x,y) = A \cdot \exp\left(-\frac{(x-x_0)^2 + (y-y_0)^2}{2\sigma^2}\right) + C$$
+
+to each ROI using nonlinear least-squares (`lsqcurvefit`). Reports goodness-of-fit ($R^2$) for each localization.
 
 #### Localization Quality Control (QC)
 
 A multi-layer filter removes candidates that do not conform to the expected PSF shape:
 
-| QC Check | Default | Description |
-|----------|---------|-------------|
-| **Divergence Check** | On | Rejects sub-pixel solutions that shift more than `Max Shift Factor × FWHM/2` pixels from the coarse integer peak. Prevents convergence failures. |
-| **Max Shift Factor** | 1.0 | Multiplier on FWHM/2. Increase to allow larger shifts (for noisy data). |
-| **ROI Maxima Check** | On | Rejects ROIs with multiple intensity peaks (overlapping bubbles). |
+| QC Check | Default | Code Field | Description |
+|----------|---------|------------|-------------|
+| Divergence Check | On | `params.loc.enable_divergence_check` | Rejects solutions shifting more than `max_shift_factor × FWHM/2` from the coarse peak |
+| Max Shift Factor | 2.0 | `params.loc.qc_max_shift_factor` | Multiplier on allowable shift |
+| ROI Maxima Check | On | `params.loc.enable_roi_maxima_check` | Rejects ROIs with multiple intensity peaks (overlapping bubbles) |
+| Min R² (Gaussian only) | 0.3 | `params.loc.min_r_squared` | Minimum goodness-of-fit for Gaussian fitting |
+| Box Radius (Gaussian) | 3 px | `params.loc.gauss_box_radius` | Half-size of the fitting ROI |
 
-For Gaussian fitting methods, an additional QC panel appears:
+#### Advanced Localization Parameters (Modal)
 
-| QC Check | Default | Description |
-|----------|---------|-------------|
-| **FWHM [x z] (px)** | [3, 3] | Expected PSF size for Gaussian fitting |
-| **Box Radius (px)** | 2 | Half-size of the ROI used for Gaussian fitting. |
-| **Min R-squared** | 0.3 | Minimum goodness-of-fit for Gaussian fitting (rejects poor fits). |
-
-#### Advanced Localization Parameters
-Click **"Advanced Localization / Detection Parameters..."** to open a modal dialog exposing additional parameters not shown in the main tab:
+Click **"Advanced Detection / PSF Parameters..."** to access:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| **PSF Type** | `Gaussian` | Template type for NCC detection |
-| **PSF Size [x z]** | [5, 5] | Template dimensions |
-| **Max ROI Maxima** | 3 | Maximum number of local maxima allowed in an ROI before rejection |
-| **Min |grad|² for fit** | 1e-6 | Minimum gradient magnitude for radial symmetry (rejects flat regions) |
-| **Min Hessian determinant** | 1e-6 | Minimum matrix determinant for radial symmetry linear system (rejects numerically unstable fits) |
+| PSF Type | `Gaussian` | Template type for NCC detection |
+| PSF Size [x z] | [5, 5] | Template dimensions |
+| Max ROI Maxima | 3 | Maximum local maxima allowed in an ROI before rejection |
+| Min |∇|² for fit | 1e-6 | Minimum gradient magnitude for radial symmetry |
+| Min Hessian determinant | 1e-6 | Minimum matrix determinant for radial symmetry linear system |
 
-#### Localization Density Map (Preview)
-Click **"Show Localization Density Map"** to render a preview of the localization density before committing to tracking. This map uses the current upsampling factor and displays the accumulated localization count per super-resolved pixel with power-law compression and a `hot` colormap.
+#### Localization Density Map & QC Summary
 
-#### QC Summary Dialog
-After localization completes, a dialog window displays the full QC report including rejection counts per criterion, total pass/fail rates, and per-frame statistics.
+Click **"Show Localization Density Map"** to render a pre-tracking preview of localization density. The map uses the current upsampling factor and displays accumulated counts per super-resolved pixel with power-law compression ($\gamma = 1/3$) and a `hot` colormap. After localization completes, a QC Summary Dialog displays rejection counts per criterion, total pass/fail rates, and the captured console output in a monospaced text area.
 
-#### Running Localization
-Click **"Run Localization"**. The status bar shows the localization yield (e.g., "107 particles localized"), i.e., how many of the detected candidates survived QC.
-
-> **Yield monitoring:** A drop from 141 detections to 107 localizations (24% rejection) is typical and healthy. A rejection rate >60% suggests the FWHM or QC parameters need adjustment.
+> **Tip (Yield Monitoring):** A drop from 141 detections to 107 localizations (24% rejection) is typical and healthy. A rejection rate exceeding 60% suggests the FWHM or QC parameters need adjustment.
 
 ---
 
 ### Tab 4: Track
 
-**Purpose:** Link sub-pixel localizations across frames into continuous trajectories.
+**Functional Purpose:** Link sub-pixel localizations across frames into continuous trajectories using predictive motion models and assignment solvers.
 
-#### Tracking Algorithm
+#### Tracking Algorithms
 
-| Algorithm | File | Description |
-|-----------|------|-------------|
-| **`Kalman` (KT)** | `trackKalman.m` | Predictive Kalman filter with constant-velocity motion model. Bridges temporal gaps ("blinking"). Recommended for most datasets. |
-| **`Kalman_Advanced` (HKT)** | `trackKalman_Advanced.m` | Hierarchical multi-pass tracker (Taghavi et al., 2022). Processes velocity ranges sequentially (slow → fast). Best for heterogeneous flow (e.g., kidney: arcuate arteries + peritubular capillaries simultaneously). |
-| **`Hungarian` (HT)** | `trackHungarian.m` | Global linear assignment (Munkres solver). Improves directionality vs. NN but still lacks predictive capability. |
-| **`nn` (Nearest Neighbor)** | `trackNearestNeighbor.m` | Greedy local linker. Fast but prone to fragmentation in high-density regions. |
+| Algorithm | Registry ID | File | Motion Model | Prediction |
+|-----------|------------|------|-------------|------------|
+| Kalman (KT) | `Kalman` | `trackKalman.m` | Constant-velocity state $[x, y, v_x, v_y]$ | Yes |
+| Hierarchical Kalman (HKT) | `Kalman_Advanced` | `trackKalman_Advanced.m` | Multi-pass velocity bands | Yes |
+| Hungarian (HT) | `Hungarian` | `trackHungarian.m` | None (Munkres assignment) | No |
+| Nearest Neighbor (NN) | `nn` | `trackNearestNeighbor.m` | None (greedy) | No |
 
 #### Core Tracking Parameters
 
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| **Max Linking Distance (px)** | 5 | 0.1–10 | Maximum Euclidean distance allowed for linking a localization to an active track. In Kalman mode, this is the distance from the *predicted* state. |
-| **Max Gap Closing (frames)** | 2 | 0–10 | Number of consecutive missing frames a track can survive before being terminated. Set to 0 to disable gap closing. |
-| **Min Track Length** | 8 | 2–20 | Minimum number of localizations for a track to be retained. Shorter tracks are discarded as fragments or noise. |
+| Parameter | Default (`ULM_Constants`) | Range | Code Field | Description |
+|-----------|--------------------------|-------|------------|-------------|
+| Max Linking Distance (px) | 2.0 (`DEFAULT_LINKING_DISTANCE`) | 0.1–10 | `params.track.max_linking_distance` | Maximum Euclidean distance for linking |
+| Max Gap Closing (frames) | 2 (`DEFAULT_GAP_CLOSING`) | 0–10 | `params.track.max_gap_closing_frames` | Consecutive missing frames before termination |
+| Min Track Length | 3 (`DEFAULT_TRACK_LENGTH`) | 2–20 | `params.track.min_track_length` | Minimum localizations to retain a track |
 
-#### Kalman Filter Settings
+#### Kalman Filter Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Motion Model** | `ConstantVelocity` | State vector `[x, y, vx, vy]`. Use `ConstantAcceleration` for rapidly changing velocity. |
-| **Process Noise** | 0.1 | Kalman model flexibility. Low = tracker trusts the motion model (stiff). High = tracker follows measurements more closely (flexible). Increase if tracks break on sharp turns. |
-| **Assignment Method** | `hungarian` | Inner assignment solver: `hungarian` (global, optimal) or `nn` (nearest neighbor, fast). |
+| Parameter | Default | Code Field | Description |
+|-----------|---------|------------|-------------|
+| Motion Model | `ConstantVelocity` | `params.track.kalman.motion_model` | State vector model |
+| Process Noise | 10 | `params.track.kalman.process_noise` | Model flexibility. Low = stiff, high = follows measurements |
+| Assignment Method | `hungarian` | `params.track.kalman.assignment_method` | Inner solver: `hungarian` (optimal) or `nn` (fast) |
 
 #### Smart Cost Matrix (SCM)
 
-When **Use Advanced Cost Matrix** is enabled, the linking cost is computed as:
+When **Use Advanced Cost Matrix** is enabled, the linking cost incorporates direction and brightness consistency:
 
-```
-C_total(i,j) = C_dist · (1 + W_slope · P_angle) · (1 + W_int · P_intensity)
-```
+$$C_{total}(i,j) = C_{dist} \cdot (1 + W_{slope} \cdot P_{angle}) \cdot (1 + W_{int} \cdot P_{intensity})$$
 
-Where:
-- `C_dist` = base spatial distance (Euclidean or Kalman-predicted)
-- `P_angle = max(0, θᵢⱼ − θ_gate)` = directional penalty for turns beyond the safety gate
-- `P_intensity = |I_current − Ī_track| / (Ī_track + ε)` = brightness consistency penalty
+where $C_{dist}$ is the base spatial distance (Euclidean or Kalman-predicted), $P_{angle} = \max(0, \theta_{ij} - \theta_{gate})$ is the directional penalty for turns beyond the safety gate, and $P_{intensity} = |I_{current} - \bar{I}_{track}| / (\bar{I}_{track} + \epsilon)$ is the brightness consistency penalty.
 
-Click **"Configure Advanced Cost Matrix"** or **"Advanced Kalman Parameters..."** to access the full set of cost matrix and gating parameters in a modal dialog:
+The Advanced Kalman modal exposes:
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Direction penalty weight (W_dir)** | 2 | Penalty weight for direction changes (0 = disabled, typical 1–5) |
-| **Angle penalty slope (W_slope)** | 0.3 | Linear slope of the directional cost above the gate angle |
-| **Brightness penalty weight (W_int)** | 2 | Penalty weight for brightness changes (0 = disabled, typical 0–3) |
-| **Max angle change (°)** | 70 | Hard ceiling on frame-to-frame direction change |
-| **Gating angle change (°)** | 90 | Soft gate for pre-filtering candidates before cost computation |
-| **Direction history points** | 4 | Number of past positions used to estimate current trajectory direction |
+| Parameter | Default | Code Field | Description |
+|-----------|---------|------------|-------------|
+| Direction penalty weight | 2 | `params.track.kalman.direction_penalty_weight` | Weight on direction deviation (0 = disabled) |
+| Angle penalty slope | 0.3 | `params.track.kalman.angle_penalty_slope` | Slope of directional cost above the gate angle |
+| Brightness penalty weight | 2 | `params.track.kalman.brightness_penalty_weight` | Weight on amplitude mismatch |
+| Max angle change (°) | 70 | `params.track.kalman.max_angle_change_deg` | Hard ceiling on direction change |
+| Gating angle change (°) | 90 | `params.track.kalman.gating_max_angle_change_deg` | Soft gate for pre-filtering |
+| Direction history points | 4 | `params.track.kalman.direction_history_points` | Past positions used for direction estimation |
 
-#### Hierarchical Kalman Tracker (HKT) Settings
+#### Hierarchical Kalman Tracker (HKT)
 
-The HKT decomposes tracking into `N` velocity levels, processing slow bubbles first and subtracting their localizations before tracking faster ones. Click **"Configure Hierarchical Kalman (HK)"** to access:
+The HKT decomposes tracking into $N$ velocity levels, processing slow bubbles first and subtracting their localizations before tracking faster ones. Parameters:
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **HK alpha (process-noise scale)** | 0.01 | Process noise multiplier: `σ_process = α × v_max_level`. Increase if tracks break on turns. |
-| **HK beta (measurement-noise scale)** | 0.025 | Measurement noise base: `σ_meas = β / 2^(level−1)`. Decrease if localizations are highly precise. |
-| **Max Velocity (mm/s)** | 20 | Global upper velocity limit across all levels |
-| **Num Levels** | 5 | Number of velocity bands (e.g., 5 levels over 0–20 mm/s) |
-| **Spacing Power** | 1.0 | 1.0 = linear spacing. >1.0 = more levels at low velocities. <1.0 = more at high velocities. |
-| **Enable Overlap** | On | Add an overlap band between adjacent velocity levels to prevent missed assignments at boundaries |
-| **Overlap Width (mm/s)** | 2.0 | Width of the overlap band |
-| **Forward-Backward** | On | Dual-pass tracking: runs forward then backward through time, maximizing track yield |
-
-#### Kalman Trust Balance Panel
-
-A visual indicator panel that shows the theoretical split between trusting the motion model vs. trusting the raw localizations. This is computed from the current noise parameters — **no tracking run is needed**. The panel updates live as you adjust Process Noise, FWHM, or HK alpha/beta.
-
-The computation depends on the selected tracker:
-
-**Standard Kalman:**
-```
-K = Q / (Q + R)
-Q = process_noise
-R = (mean(FWHM) / 2.355)²
-```
-
-**Hierarchical Kalman:**
-```
-K = (α × v_max) / (α × v_max + β)
-```
-
-Where `K → 0` means the tracker trusts the motion model (smooth, predictive), and `K → 1` means it trusts the raw localizations (follows data closely). The panel displays a colored split bar (green = model, blue = localizations) with percentages.
+| Parameter | Default | Code Field | Description |
+|-----------|---------|------------|-------------|
+| HK alpha | 0.01 | `params.track.kalman.hk_alpha` | Process noise = α × v_max_level |
+| HK beta | 0.025 | `params.track.kalman.hk_beta` | Measurement noise = β / 2^(level−1) |
+| Max Velocity (mm/s) | 20 | `params.track.kalman.hk_v_max` | Global upper velocity limit |
+| Num Levels | 5 | `params.track.kalman.hk_num_levels` | Number of velocity bands |
+| Spacing Power | 1.0 | `params.track.kalman.hk_spacing_power` | 1.0 = linear; >1.0 = more levels at low velocities |
+| Enable Overlap | On | `params.track.kalman.hk_enable_overlap` | Overlap band between velocity levels |
+| Overlap Width (mm/s) | 2.0 | `params.track.kalman.hk_overlap_mm_s` | Width of the overlap band |
+| Forward-Backward | On | `params.track.kalman.hk_forward_backward` | Dual-pass: forward then backward |
 
 #### Post-Tracking Quality Control
 
-Optional filters applied to *completed* trajectories:
-
-| QC Constraint | Default | Description |
-|--------------|---------|-------------|
-| **Direction Constraint** | On | Rejects tracks with turns larger than `Max Angle (°)`. Use for phantoms with known straight channels. |
-| **Acceleration Constraint** | On | Adaptive acceleration gating. Rejects unrealistic velocity jumps. |
-| **Velocity Dispersion (VD) Constraint** | Off | Rejects "jittery" tracks where path length >> displacement (high tortuosity). |
-| **Max VD Ratio** | 0.5 | Maximum allowed ratio of path length to net displacement (Tortuosity Index threshold). |
-
-#### Running Tracking
-Click **"Run Tracking"**. Tracks are overlaid on a Temporal Mean Intensity Projection (TMIP) of the filtered data. The track count is displayed in the status bar. The Kalman Trust Balance panel updates after tracking completes.
+| QC Constraint | Default | Code Field | Description |
+|--------------|---------|------------|-------------|
+| Direction Constraint | On | `params.track.qc.enable_direction_constraint` | Rejects tracks with excessive turns |
+| Max Angle (°) | 90 (`DEFAULT_MAX_ANGLE_CHANGE`) | `params.track.qc.max_angle_change_deg` | Maximum allowed direction change |
+| Acceleration Constraint | On | `params.track.qc.enable_acceleration_constraint` | Rejects unrealistic velocity jumps |
+| Factor C | 3.0 (`DEFAULT_ACCELERATION_C_FACTOR`) | `params.track.qc.acceleration_C_factor` | Acceleration tolerance factor |
+| VD (Jitter) Constraint | Off | `params.track.qc.enable_vd_constraint` | Rejects tracks with high tortuosity |
+| Max VD Ratio | 2.0 (`DEFAULT_VD_RATIO`) | `params.track.qc.max_vd_ratio` | Maximum path-length / displacement ratio |
 
 ---
 
 ### Tab 5: Post-Process
 
-**Purpose:** Smooth discrete trajectory points and interpolate onto a sub-pixel grid before rendering.
+**Functional Purpose:** Smooth discrete trajectory points and interpolate onto a sub-pixel grid before rendering.
 
-#### Track Smoothing
+| Parameter | Default | Range | Code Field | Description |
+|-----------|---------|-------|------------|-------------|
+| Enable Smoothing | On | — | `params.track.enable_postprocessing` | Master switch |
+| Window Size | 5 | 3–21 (odd) | `params.track.smoothing_factor` | Smoothing window width |
+| Min Length (display) | — | 2–20 | `params.track.display_min_length` | Minimum track length for display (live, no re-run needed) |
 
-| Parameter | Default | Options | Description |
-|-----------|---------|---------|-------------|
-| **Enable Smoothing** | On | On/Off | Master switch |
-| **Window Size** | 5 | 3–21 (odd) | Smoothing window width. Larger = smoother but may lose fine vessel curvature. |
+The default smoothing method is Savitzky-Golay (polynomial order 3, configured via `ULM_Constants.SGOLAY_POLY_ORDER`). If the track is shorter than the minimum window for SG fitting (poly_order + 2), a `movmean` fallback is used. After smoothing, the track is interpolated at sub-pixel resolution using `interp1` with the method configured in `params.render.interpolation_method` (default: `pchip`), with `fillmissing` to handle edge cases. Velocities are computed as:
 
-The smoothing method can be changed via the **"Advanced Rendering / Smoothing / Analysis Parameters..."** button on Tab 6:
+$$v_i = \frac{\sqrt{(\Delta x_i \cdot p_x)^2 + (\Delta z_i \cdot p_z)^2}}{\Delta t_i}$$
 
-| Method | Preserves Shape | Noise Suppression | Speed |
-|--------|----------------|------------------|-------|
-| `sgolay` (Savitzky-Golay) | ★★★★★ | ★★★★ | Fast |
-| `gaussian` | ★★★★ | ★★★★★ | Fast |
-| `movmean` (Moving Average) | ★★★ | ★★★ | Fastest |
-| `rloess` (Robust Loess) | ★★★★ | ★★★ | Slow |
+where $p_x, p_z$ are the physical pixel sizes and $\Delta t_i$ is the inter-frame time interval.
 
-#### Final Display Filter (Live)
+If the Parallel Computing Toolbox is available, post-processing uses `parfor` over tracks.
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Min Length** | Adjustable | Slider to set the minimum track length for *display* purposes, without re-running tracking. This allows rapid exploration of the length/density trade-off. |
+#### Smoothing Methods (via Advanced Render modal)
 
-#### Running Post-Processing
-Click **"Run Post-Processing (Smoothing)"**. Smoothed tracks are displayed in the canvas.
+| Method | Shape Preservation | Noise Suppression | Speed |
+|--------|-------------------|------------------|-------|
+| `sgolay` (Savitzky-Golay) | Excellent | Very Good | Fast |
+| `gaussian` | Very Good | Excellent | Fast |
+| `movmean` (Moving Average) | Good | Good | Fastest |
+| `rloess` (Robust Loess) | Very Good | Good | Slow |
 
 ---
 
 ### Tab 6: Render
 
-**Purpose:** Project all trajectories onto a high-resolution grid to generate super-resolution images.
+**Functional Purpose:** Project all trajectories onto a high-resolution grid to generate super-resolution images.
 
 #### Rendering Parameters
 
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| **Upsampling Factor** | 10 | 1–10 | Final image resolution multiplier relative to the native pixel size. Factor 10 on a 50 μm pixel gives 5 μm super-resolution. |
-| **Render Method** | `histogram` | `histogram`, `gaussian` | `histogram` = unbiased count accumulation (recommended). `gaussian` = each localization is rendered as a small Gaussian blob (smoother appearance). |
+| Parameter | Default (`ULM_Constants`) | Range | Code Field | Description |
+|-----------|--------------------------|-------|------------|-------------|
+| Upsampling Factor | 3 (`DEFAULT_UPSAMPLING_FACTOR`) | 1–10 | `params.render.upsampling_factor` | Resolution multiplier relative to native pixel |
+| Render Method | `histogram` (`DEFAULT_RENDER_METHOD`) | `histogram`, `gaussian` | `params.render.method` | Accumulation strategy |
 
-#### Advanced Rendering Parameters
-Click **"Advanced Rendering / Smoothing / Analysis Parameters..."** to open a modal dialog exposing:
+#### Advanced Rendering Parameters (Modal)
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Smoothing method** | `sgolay` | Algorithm used to smooth position traces |
-| **Interpolation method** | `spline` | Sub-step interpolation between localizations: `spline`, `pchip`, `linear`, `makima` |
-| **Gaussian sigma (px)** | 0.3 | Spread of each localization when using Gaussian splatting |
-| **Interpolation step** | 0.2 | Sub-pixel spacing between interpolated points |
-| **Tortuosity bin step** | 0.05 | Bin width for tortuosity histogram analysis |
-| **Velocity histogram bins** | 60 | Number of bins in velocity histogram |
-| **Density grid (mm)** | 0.5 | Cell size of density map used for statistics |
+| Parameter | Default | Code Field | Description |
+|-----------|---------|------------|-------------|
+| Smoothing method | `sgolay` | `params.track.smoothing_method` | Algorithm for smoothing position traces |
+| Interpolation method | `spline` | `params.render.interpolation_method` | Sub-step interpolation: `spline`, `pchip`, `linear`, `makima` |
+| Gaussian sigma (px) | 0.3 | `params.render.gaussian_sigma` | Spread of each localization when using Gaussian splatting |
+| Interpolation step | 0.5 (`DEFAULT_INTERPOLATION_STEP`) | `params.render.interpolation_step` | Sub-pixel spacing between interpolated points |
+| Tortuosity bin step | 0.05 | `params.analysis.tortuosity_bins` | Bin width for tortuosity histogram |
+| Velocity histogram bins | 60 | `params.analysis.velocity_hist_num_bins` | Number of bins in velocity histogram |
+| Density grid (mm) | 0.5 | `params.analysis.density_grid_size_mm` | Cell size of density map for statistics |
 
 #### Generated Outputs
 
-Clicking **"Generate & Display Final Images (New Windows)"** produces four super-resolution maps simultaneously, each in a separate figure window:
+Clicking **"Generate & Display Final Images (New Windows)"** produces four super-resolution maps simultaneously:
 
-| Map | Description |
-|-----|-------------|
-| **Density Map** | Accumulates bubble counts per super-resolved pixel. Power-law compression (γ = 0.3) applied to simultaneously visualize high-flux arteries and sparse capillaries. |
-| **Raw Velocity Map** | Arithmetic mean of instantaneous velocity vectors (|p_t − p_{t-1}| / Δt) at each pixel. Unbiased statistical representation. |
-| **Filtered Velocity Map** | Gaussian-smoothed (σ = 0.6 super-resolved pixels) version of the raw velocity map. Bridges discrete sampling gaps; suppresses isolated high-velocity outliers from tracking errors. |
-| **Combined Fusion Map (HSV)** | Dual-mode visualization: **Hue** = velocity (blue → red), **Value** (brightness) = local vessel density. Correlates anatomy with hemodynamics in a single image. |
+| Map | Algorithm | Description |
+|-----|-----------|-------------|
+| **Density Map** | `accumarray` with cube-root compression ($\gamma = 1/3$) | Accumulates bubble counts per super-resolved pixel. Power-law compression simultaneously visualizes high-flux arteries and sparse capillaries. |
+| **Raw Velocity Map** | Per-pixel mean of instantaneous velocities | Arithmetic mean of $|p_t - p_{t-1}|/\Delta t$ at each pixel. Unbiased statistical representation. |
+| **Filtered Velocity Map** | `imgaussfilt` with σ = 0.6 | Gaussian-smoothed version of the raw velocity map. Bridges discrete sampling gaps; suppresses outliers. |
+| **Combined Fusion Map** | HSV encoding | Hue = velocity (jet colormap, blue→red), Value = density (power-law compressed). Correlates anatomy with hemodynamics in a single image. |
 
-All maps include automatic scale bar annotation (1 mm) in the lower-right corner.
+All maps include automatic 1 mm scale bar annotation in the lower-right corner, with font size and line width scaled to the upsampling factor.
 
 ---
 
-## 11. Parameter Reference
+## 10. Specialized Panels & UX Features
 
-### Default Values Summary (from `setDefaultParams.m` and `createFallbackParams`)
+### 10.1 Visual Adjustments Sidebar
 
-| Category | Parameter | Default | Range |
-|----------|-----------|---------|-------|
-| **Filter** | SVD Cutoff | [5, 100] | [1, Nt] |
-| **Filter** | Butterworth Cutoff (Hz) | [50, 250] | (0, framerate/2) |
-| **Filter** | Butterworth Order | 2 | 1–8 |
-| **Filter** | Spatial Method | Gaussian | None/Gaussian/Median/DoG/Top-Hat |
-| **Filter** | Spatial Kernel | 3 px | — |
-| **Filter** | Spatial Sigma 1 | 1.0 | — |
-| **Filter** | Spatial Sigma 2 | 2.0 | — |
-| **Detection** | Intensity Threshold | 0.50 | 0.01–1.0 |
-| **Detection** | Max Bubbles/Frame | 200 | 1–5000 |
-| **Detection** | FWHM [X,Z] (px) | [3, 3] | — |
-| **Localization** | Gaussian Box Radius | 2 px | 2–10 |
-| **Localization** | Max Shift Factor | 1.0 | — |
-| **Localization** | Min R-squared | 0.3 | — |
-| **Tracking** | Method | Kalman | — |
-| **Tracking** | Max Linking Distance | 5.0 px | 0.1–10 |
-| **Tracking** | Max Gap Closing | 2 frames | 0–10 |
-| **Tracking** | Min Track Length | 8 | 2–20 |
-| **Tracking** | Kalman Process Noise | 0.1 | — |
-| **Tracking** | Assignment Method | Munkres | hungarian / nn |
-| **QC** | Direction Constraint | On | — |
-| **QC** | Max Angle Change | 60° | — |
-| **QC** | Acceleration Constraint | On | — |
-| **QC** | Acceleration C Factor | 3.0 | — |
-| **QC** | VD Constraint | Off | — |
-| **QC** | VD Ratio | 0.5 | — |
-| **Post-Process** | Smoothing Window | 5 (odd) | 3–21 |
-| **Post-Process** | Smoothing Method | sgolay | sgolay/rloess/gaussian/movmean |
-| **Post-Process** | Interpolation Step | 0.2 | — |
-| **Render** | Upsampling Factor | 10 | 1–10 |
-| **Render** | Method | histogram | histogram/gaussian |
-| **Render** | Gaussian Sigma | 0.3 | — |
-| **Render** | Interpolation Method | spline | spline/pchip/linear/makima |
-| **ROI** | Gamma | 1.0 | 0.1–3.0 |
-| **ROI** | Threshold | 0.0 | — |
-| **UI** | Debounce Delay | 50 ms | — |
-| **UI** | Memory Update Interval | 2.0 s | — |
-| **Undo** | Max History States | 20 | — |
+The persistent left-side panel provides display controls that apply to every processing stage. These controls affect only the visualization pipeline within `DisplayManager.processImageForDisplay`, not the underlying data:
+
+| Control | Range | Default | Effect on Rendering Pipeline |
+|---------|-------|---------|------------------------------|
+| Normalize (mat2gray) | On/Off | On | Normalizes frame to [0, 1] via `mat2gray` |
+| Log Compression | On/Off | Off | Applies $20 \cdot \log_{10}(|x| + \epsilon)$ for high dynamic range data |
+| Gamma (Stretch) | 0.1–5.0 | 1.0 | Applies $x^\gamma$ — values < 1 brighten dark regions, > 1 darken |
+| Colormap | `gray`, `hot`, `jet`, `parula` | `gray` | Sets `colormap(ax, ...)` on the visualization axes |
+| Auto CLim | On/Off | On | Automatically computes color limits per frame |
+| CLim [Min, Max] | — | [0, 1] | Manual override when Auto CLim is off |
+
+### 10.2 Kalman Trust Balance Panel
+
+This panel (visible on Tab 4 when a Kalman tracker is selected) shows the theoretical split between trusting the motion model vs. trusting the raw localizations, computed from the current noise parameters — no tracking run is needed. The panel updates live as the user adjusts Process Noise, FWHM, or HK alpha/beta.
+
+The computation depends on the selected tracker:
+
+**Standard Kalman:**
+
+$$K = \frac{Q}{Q + R}, \quad Q = \text{process\_noise}, \quad R = \left(\frac{\overline{FWHM}}{2.355}\right)^2$$
+
+**Hierarchical Kalman:**
+
+$$K = \frac{\alpha \cdot v_{max}}{\alpha \cdot v_{max} + \beta}$$
+
+Where $K \to 0$ means the tracker trusts the motion model (smooth, predictive), and $K \to 1$ means it trusts the raw localizations (follows data closely).
+
+The panel displays a **colored split bar** (green = Model, blue = Localizations) with dynamically updated percentages and column widths. The formula text below the bar shows the exact computation with the current parameter values. The color saturation of each bar half intensifies as the balance becomes more extreme, providing an immediate visual cue.
+
+**Practical guidance:** For phantom data with known straight channels, a low $K$ (~0.1–0.3) is appropriate — the model can confidently predict linear motion. For in vivo data with tortuous capillaries, a higher $K$ (~0.5–0.7) allows the tracker to follow the actual vessel geometry more closely. If $K > 0.9$, the Kalman filter provides almost no prediction benefit over a simple nearest-neighbor linker.
+
+### 10.3 Vessel Masking & Interactive Histogram
+
+The ROI panel on Tab 2 provides an integrated vessel masking workflow. When the user navigates to the Detect tab with filtered data available, `prepareROITab` computes a temporal mean image with square-root compression as the base vessel map. The enhancement pipeline (CLAHE / Top-Hat / Sharpen) processes this base image through the user's selected method, applies gamma contrast, and normalizes to [0, 1].
+
+The **histogram panel** (`axHist`) displays the intensity distribution of the enhanced vessel map in log scale. A red vertical threshold line (`xline` with tag `'threshLine'`) moves in real-time as the threshold slider changes — the histogram itself is not redrawn on threshold changes; only the `xline` value is updated, providing smooth interaction. Full histogram redraws occur only when the enhancement method, strength, or gamma changes. Pixels above the threshold are marked as vessel mask (`app.data.mask = vesselMap >= threshold`).
+
+### 10.4 Advanced Parameter Modals
+
+Three "Advanced..." buttons open modal dialogs that expose the full parameter set in grouped, annotated panels. Each dialog follows a consistent visual grammar: grouped `uipanel` elements titled with the pipeline stage, bold parameter labels, numeric edit fields, and italic one-line descriptors. Save and Cancel buttons persist or discard changes. All three modals call `clearDownstreamData` on save to invalidate affected results.
+
+**Advanced Detection / Localization Parameters:** Exposes PSF template configuration (type, size, file path), QC thresholds (max ROI maxima, minimum gradient squared, minimum Hessian determinant), and method-specific controls.
+
+**Advanced Kalman Parameters:** Organized into three sections — Cost Matrix Weights (direction penalty, angle penalty slope, brightness penalty), Angle Gating (max angle change, gating angle, direction history points), and HK Noise Scaling (alpha, beta). The HK alpha and beta fields are wired to `updateKalmanGainSummary` via `ValueChangedFcn`, providing live Trust Balance updates while the dialog is open.
+
+**Advanced Rendering / Smoothing / Analysis Parameters:** Exposes smoothing method, interpolation method, Gaussian sigma, interpolation step, tortuosity bin step, velocity histogram bins, and density grid cell size.
+
+---
+
+## 11. Consolidated Parameter Reference
+
+The following table presents the authoritative default values from `ULM_Constants.m` and `createFallbackParams()`:
+
+| Category | Parameter | Constant Name | Default | Range |
+|----------|-----------|--------------|---------|-------|
+| **Acquisition** | Frame Rate (Hz) | `DEFAULT_FRAMERATE` | 1000 | — |
+| **Acquisition** | Pixel Size X (mm) | `DEFAULT_PIXEL_SIZE_X` | 0.1 | — |
+| **Acquisition** | Pixel Size Z (mm) | `DEFAULT_PIXEL_SIZE_Z` | 0.1 | — |
+| **Filter** | SVD Cutoff | `DEFAULT_SVD_CUTOFF` | [1, 100] | [1, Nt] |
+| **Filter** | Butterworth Cutoff (Hz) | `DEFAULT_BUTTER_CUTOFF` | [10, 100] | (0, framerate/2) |
+| **Filter** | Butterworth Order | `DEFAULT_BUTTER_ORDER` | 4 | 1–8 |
+| **Detection** | Intensity Threshold | `DEFAULT_DETECTION_THRESHOLD` | 0.3 | 0.01–1.0 |
+| **Detection** | Max Bubbles/Frame | `DEFAULT_MAX_BUBBLES_PER_FRAME` | 2000 | 1–5000 |
+| **Localization** | FWHM [X,Z] (px) | `DEFAULT_FWHM` | [1.5, 1.5] | — |
+| **Localization** | Gauss Box Radius (px) | `DEFAULT_GAUSS_BOX_RADIUS` | 3 | 2–10 |
+| **Localization** | Max Shift Factor | `DEFAULT_QC_MAX_SHIFT_FACTOR` | 2.0 | — |
+| **Tracking** | Max Linking Distance (px) | `DEFAULT_LINKING_DISTANCE` | 2.0 | 0.1–10 |
+| **Tracking** | Max Gap Closing (frames) | `DEFAULT_GAP_CLOSING` | 2 | 0–10 |
+| **Tracking** | Min Track Length | `DEFAULT_TRACK_LENGTH` | 3 | 2–20 |
+| **Tracking** | Kalman Process Noise | `DEFAULT_KALMAN_PROCESS_NOISE` | 10 | — |
+| **Tracking** | Kalman Model | `DEFAULT_KALMAN_MODEL` | `ConstantVelocity` | — |
+| **Tracking** | Assignment Method | `DEFAULT_ASSIGNMENT_METHOD` | `hungarian` | — |
+| **QC** | Max Angle Change (°) | `DEFAULT_MAX_ANGLE_CHANGE` | 90 | — |
+| **QC** | Acceleration C Factor | `DEFAULT_ACCELERATION_C_FACTOR` | 3.0 | — |
+| **QC** | VD Ratio | `DEFAULT_VD_RATIO` | 2.0 | — |
+| **Post-Process** | Smoothing Window | `DEFAULT_SMOOTHING_WINDOW` | 5 | 3–21 (odd) |
+| **Post-Process** | Interpolation Step | `DEFAULT_INTERPOLATION_STEP` | 0.5 | — |
+| **Render** | Upsampling Factor | `DEFAULT_UPSAMPLING_FACTOR` | 3 | 1–10 |
+| **Render** | Method | `DEFAULT_RENDER_METHOD` | `histogram` | — |
+| **ROI** | Gamma | `DEFAULT_ROI_GAMMA` | 1.0 | 0.1–3.0 |
+| **ROI** | Threshold | `DEFAULT_ROI_THRESHOLD` | 0.0 | — |
+| **UI** | Debounce Delay (s) | `DEBOUNCE_DELAY` | 0.05 | — |
+| **UI** | Memory Update (s) | `MEMORY_UPDATE_INTERVAL` | 2.0 | — |
+| **UI** | Playback FPS | `PLAYBACK_FPS` | 20 | — |
+| **Undo** | Max History States | `MAX_UNDO_STATES` | 20 | — |
+| **Performance** | Large Data Threshold | `LARGE_DATA_THRESHOLD` | 1e8 | — |
+| **Scale Bar** | Length (mm) | `SCALE_BAR_LENGTH_MM` | 1.0 | — |
 
 ---
 
@@ -858,76 +820,36 @@ All maps include automatic scale bar annotation (1 mm) in the lower-right corner
 
 The session system allows complete workspace preservation and reproducibility.
 
-### Saving a Session
-Click **Save Work Session** in the menu bar. A `.mat` file is created containing:
-- Loaded raw data
-- All processed intermediate results (filtered data, detections, localizations, tracks)
-- All current parameter values
-- Mask and crop settings
-- GUI state (current tab, frame index)
+**Saving a Session:** Click **Save Work Session** in the menu bar. A `.mat` file is created (with `-v7.3` / HDF5 backend for large files) containing: loaded raw data, all processed intermediate results (filtered data, detections, localizations, tracks), all current parameter values, mask and crop settings, GUI state (current tab, frame index), and DCC/block-wise diagnostic data.
 
-### Loading a Session
-Click **Load Work Session**. All data and parameters are restored and the GUI updates automatically to the correct processing state. After loading, `ensureAllParamFields()` is called to fill any fields that may be missing in sessions saved with older versions of the codebase.
+**Loading a Session:** Click **Load Work Session**. All data and parameters are restored, `ensureAllParamFields()` fills any missing fields from older sessions, `populateGUIFromParams` synchronizes all UI controls, the correct pipeline stage is inferred from which data fields are populated, and the display updates automatically.
 
-### Session Info (without full load)
-From the MATLAB command window:
+**Session Info (without full load):** From the MATLAB command window:
+
 ```matlab
 sm = SessionManager();
 info = sm.getSessionInfo('my_session.mat');
 ```
-Returns metadata (date, processing state, data size) without loading the full dataset.
+
+Returns metadata (version, date, processing state, data size, track count) without loading the full dataset.
 
 ---
 
 ## 13. Undo / Redo System
 
-The undo system tracks parameter changes with named checkpoints.
+The undo system tracks parameter changes with named checkpoints:
 
 | Action | Control | Notes |
 |--------|---------|-------|
 | **Undo** | Undo button or **Ctrl+Z** | Reverts last parameter change |
 | **Redo** | Redo button or **Ctrl+Y** | Re-applies undone change |
-| **History** | `app.undoManager.displayHistory()` | Prints full undo chain to console |
+| **History** | `app.undoManager.displayHistory()` | Prints full undo/redo chain to console |
 
-- Up to **20 levels** of undo are maintained (configurable via `ULM_Constants.MAX_UNDO_STATES`)
-- Undo/Redo only tracks **parameter changes**, not processing results
-- After undoing, click the relevant "Run" button to re-process with the restored parameters
-- The Undo and Redo buttons are automatically greyed out when no history is available
-- Applying a spatial crop clears the entire undo history
+Up to 20 levels of undo are maintained (configurable via `ULM_Constants.MAX_UNDO_STATES`). Undo/Redo only tracks parameter changes, not processing results — after undoing, click the relevant "Run" button to re-process with the restored parameters. The Undo and Redo buttons are automatically greyed out when no history is available. Applying a spatial crop clears the entire undo history. Making any new parameter change clears the redo stack (standard branching model).
 
 ---
 
-## 14. ROI & Masking Tools
-
-Masks restrict detection and processing to anatomically meaningful regions, reducing false positives and computation time.
-
-### Manual Polygon Mask
-1. In Tab 1 (Filter), click **"Create New Mask"**
-2. Draw a polygon outline on the Visualization Canvas
-3. Double-click to close the polygon
-4. Click **"Save Mask"** in Tab 2 to export as `Mask.mat`
-
-### Algorithmic Auto-Mask
-The auto-mask generates a binary Flow Probability Mask from the filtered image sequence:
-1. Compute temporal mean of SVD-filtered frames (with sqrt compression)
-2. Apply selected enhancement (CLAHE / Top-Hat / Sharpen)
-3. Apply Gamma contrast adjustment
-4. Threshold to produce binary mask
-5. Real-time histogram visualization updates as parameters change
-
-**CLAHE parameters:**
-- Clip limit controlled by the Strength slider
-- Number of tiles: 8×8
-
-**Top-Hat parameters:**
-- Structural element radius controlled by the Strength slider
-
-### Applying the Mask
-With a mask loaded, detection (`detectBubbles.m`) will only evaluate pixels where the mask is non-zero. Pixels outside the mask are ignored. The mask status is shown in the Filter tab as "Status: None" or "Status: Loaded".
-
----
-
-## 15. Keyboard Shortcuts
+## 14. Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -939,93 +861,103 @@ With a mask loaded, detection (`detectBubbles.m`) will only evaluate pixels wher
 
 ---
 
-## 16. Performance Guide
+## 15. Developer's Guide: Extending the Registry
+
+To add a new algorithm (e.g., a new tracking method called `myTracker`), follow these steps:
+
+**Step 1.** Implement the function `trackMyTracker.m` in `core/tracking/` with the standard signature:
+
+```matlab
+function tracks = trackMyTracker(localizations, params, indentPrefix)
+    % Your tracking logic here
+end
+```
+
+**Step 2.** Open `ULM_Master_GUI_v3.m` and locate `getAlgorithmRegistry()`. Add one entry to `reg.track`:
+
+```matlab
+reg.track = struct( ...
+    'id',         {'Kalman', 'Kalman_Advanced', 'Hungarian', 'nn', 'myTracker'}, ...
+    'display',    {'Kalman', 'Hierarchical Kalman', 'Hungarian', 'Nearest Neighbor', 'My Tracker'}, ...
+    'func',       {'trackKalman','trackKalman_Advanced','trackHungarian','trackNearestNeighbor','trackMyTracker'}, ...
+    'isKalman',   {true, true, false, false, false}, ...
+    'showsGain',  {true, true, false, false, false}, ...
+    'usesHK',     {false, true, false, false, false}, ...
+    'tooltip',    { ...
+        'Classic Kalman filter...', ...
+        'Hierarchical Kalman...', ...
+        'Linear-assignment solver...', ...
+        'Greedy nearest-neighbor...', ...
+        'My custom tracker description.' ...
+    });
+```
+
+**Step 3.** Add a `case` to the dispatch switch in `runTracking`:
+
+```matlab
+case 'mytracker'
+    tracks = trackMyTracker(app.data.localizations, params, '  ');
+```
+
+**That's it.** The dropdown will now include "My Tracker", the tooltip will appear on hover, and the existing option visibility logic will handle any panel that needs showing/hiding based on the `isKalman`, `usesHK`, and `showsGain` flags.
+
+---
+
+## 16. Performance Optimization
 
 ### For Large Datasets (>100 MB)
 
-1. **Spatial crop first** — Reduces SVD matrix size quadratically. A 2× crop = 4× SVD speedup. Use "Interactive Crop" then "Apply Crop to Data" in Tab 1.
+**Spatial crop first.** This reduces SVD matrix size quadratically. A 2× crop in each dimension yields a 4× reduction in the Casorati matrix rows, giving approximately 16× SVD speedup. Use "Interactive Crop" then "Apply Crop to Data" in Tab 1.
 
-2. **Use the cached SVD** — After the first filter run, slider adjustments are instantaneous. Avoid clicking "Run Filter" again unless the data or method changes.
+**Use the cached SVD.** After the first filter run, slider adjustments to SVD cutoffs are instantaneous because they only call `reconstruct_SVD_Signal` on the cached `U`, `S`, `V` matrices. Avoid clicking "Run Filter" again unless the raw data or filter method changes.
 
-3. **Enable Parallel Computing Toolbox** — Speeds up Gaussian fitting and post-processing:
-   ```matlab
-   parpool('local', 4);   % Start 4 parallel workers
-   ```
+**Enable Parallel Computing Toolbox.** The post-processing callback uses `parfor` when a parallel pool is detected:
 
-4. **Limit playback updates** — Disable visualization overlays during parameter tuning.
+```matlab
+parpool('local', 4);   % Start 4 parallel workers
+```
 
-5. **Use `histogram` render mode** — The `gaussian` render mode is significantly slower for large track sets.
+**Use `histogram` render mode.** The `gaussian` render mode is significantly slower for large track sets because it splatts a Gaussian kernel for each track point.
 
-6. **Monitor memory** — The memory monitor in the menu bar updates every 2 seconds. If usage approaches system RAM, clear intermediate variables:
-   ```matlab
-   app = guidata(gcf);
-   app.data.U = [];
-   app.data.S_diag = [];
-   app.data.V = [];
-   guidata(gcf, app);
-   ```
+**Monitor memory.** The memory monitor in the menu bar updates every 2 seconds. If usage approaches system RAM, clear intermediate variables or spatial crop the data. The `cleanupGUI` function releases all large data arrays on close.
 
 ### SVD Cutoff Tuning Workflow (Fastest Approach)
-1. Run filter once with a wide range (e.g., [1, 1000])
-2. Open the frame slider and scrub to a frame with visible bubbles
-3. Slowly increase Cutoff Start until tissue background disappears
-4. Slowly decrease Cutoff End until noise floor is suppressed
-5. All adjustments after the first run are instant (cached SVD)
+
+1. Run filter once with a wide range (e.g., [1, 1000]).
+2. Open the frame slider and scrub to a frame with visible bubbles.
+3. Slowly increase Cutoff Start until tissue background disappears.
+4. Slowly decrease Cutoff End until background noise is suppressed.
+5. All adjustments after the first run are instant (cached SVD).
+
+### Key Performance Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `DEBOUNCE_DELAY` | 50 ms | Prevents UI freezing during rapid slider movement |
+| `GAUSSIAN_FIT_BATCH_SIZE` | 500 | Batch size for vectorized Gaussian fitting |
+| `PROGRESS_UPDATE_INTERVAL` | 100 | Iterations between progress bar updates |
+| `PLAYBACK_TIMER_PERIOD` | 50 ms | Frame advance period during playback |
 
 ---
 
 ## 17. Troubleshooting
 
-### GUI won't open
-- Ensure all `.m` files are in the same directory and on the MATLAB path
-- Run from the directory containing `ULM_Master_GUI_v3.m`
-- Check that required toolboxes are licensed: `ver`
-
-### "setDefaultParams.m is missing" warning
-- This is non-fatal — the GUI uses safe fallback defaults (FPS: 200, Pixel Size: 0.05 mm)
-- Place `setDefaultParams.m` on the MATLAB path and restart the GUI to use experiment-specific defaults
-
-### "Out of Memory" error during SVD
-- Reduce data size by spatial cropping (Tab 1)
-- Close other MATLAB figures: `close all`
-- Use 64-bit MATLAB (required for >2 GB variables)
-- Clear workspace: `clear all`
-
-### Detection count always equals Max Bubbles/Frame
-- The detector is saturated. Increase "Max Bubbles/Frame" until the count drops below the limit.
-
-### SVD filtering shows no change when moving sliders
-- The SVD cache may be stale. Click "Run Filter" once to recompute and re-cache.
-- Verify the displayed frame index is a frame with visible signal.
-
-### Tracking produces too many short fragmented tracks
-- Increase "Min Track Length" to filter fragments
-- Enable the Smart Cost Matrix (Tab 4)
-- Reduce "Max Linking Distance" to prevent cross-linking between nearby vessels
-- Switch from NN/Hungarian to Kalman tracking for predictive gap-bridging
-
-### Localization yield is <30% of detections
-- FWHM setting may not match the actual bubble PSF size — adjust in Tab 2
-- Reduce "Max Shift Factor" if bubbles are drifting too far from peaks
-- Check if the filtered image has significant residual noise (re-tune filter cutoffs)
-
-### Display not updating after parameter change
-- Check status lamp: if red, processing is still running
-- Click the frame number field and press Enter to force a refresh
-- If the issue persists, save the session and restart the GUI
-
-### Undo button greyed out
-- At least 2 parameter states are needed for undo. Make one parameter change and the button will enable.
-- After a spatial crop, the undo history is cleared — this is by design.
-
-### Session fails to load
-- Ensure the session file was saved with a compatible version of the codebase
-- The `ensureAllParamFields()` function will fill missing fields from older sessions, but major structural changes may still cause errors
-- Check that all required `.m` files are present on the path
-
-### Kalman Trust Balance shows unexpected values
-- The panel computes a theoretical gain from the current Process Noise and FWHM settings. It does not use actual tracking data.
-- For HKT, the gain depends on `hk_alpha`, `hk_beta`, and `hk_v_max` — adjust these in the Advanced Kalman dialog.
+| Symptom | Likely Cause | Solution |
+|---------|-------------|----------|
+| GUI won't open | Missing `.m` files or toolboxes | Ensure all files are on the MATLAB path; verify toolboxes with `ver` |
+| "setDefaultParams.m is missing" warning | The file is not on the path | Non-fatal — the GUI uses safe fallback defaults. Place `setDefaultParams.m` on the path and restart. |
+| "Out of Memory" during SVD | Data matrix too large for available RAM | Spatial crop first (Tab 1); close other figures (`close all`); use 64-bit MATLAB; clear workspace (`clear all`) |
+| Detection count always equals Max Bubbles/Frame | Detector is saturated | Increase `Max Bubbles/Frame` until the count drops below the limit |
+| SVD sliders show no change | SVD cache may be stale or frame has no signal | Click "Run Filter" to recompute; verify the displayed frame index has visible signal |
+| Too many short fragmented tracks | Tracking parameters are too permissive | Increase `Min Track Length`; enable Smart Cost Matrix; reduce `Max Linking Distance`; switch to Kalman tracking |
+| Localization yield < 30% of detections | FWHM mismatch or noisy filtered image | Adjust FWHM to match actual bubble PSF; reduce `Max Shift Factor`; re-tune filter cutoffs |
+| Display not updating after parameter change | Processing still running or display error | Check status lamp; click frame number and press Enter to force refresh; save session and restart if needed |
+| Undo button greyed out | Fewer than 2 parameter states in history | Make at least one parameter change; note that spatial crop clears undo history |
+| Session fails to load | Version mismatch or missing fields | `ensureAllParamFields()` fills missing fields automatically; major structural changes may still cause errors |
+| Kalman Trust Balance shows unexpected values | Panel uses theoretical gain from current parameters, not tracking data | For HKT, adjust `hk_alpha`, `hk_beta`, and `hk_v_max` in the Advanced Kalman dialog |
+| "Invalid crop box" error | Crop box format incorrect | Enter as `[x y width height]` in pixels; width and height must be positive; region must be within frame bounds |
+| NCC detection without PSF template | No `MB_image` loaded | Accept the auto-generate prompt to create a Gaussian PSF from the current FWHM setting |
+| "No 3D numeric data found" on load | Data file doesn't contain a 3D array | Ensure the `.mat` file contains a numeric array of shape `[Nz × Nx × Nt]` |
 
 ---
 
@@ -1056,7 +988,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 ---
 
-## Acknowledgments
+## 19. Acknowledgments
 
 This work was carried out under the supervision of **Prof. Tali Ilovitsh** at the School of Biomedical Engineering, Tel Aviv University.
 
