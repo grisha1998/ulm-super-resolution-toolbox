@@ -41,11 +41,37 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
 %       .max_bubbles_per_frame [integer]     Maximum number of MB candidates
 %                                            retained per frame.
 %
+%   locParams optional fields:
+%       .ncc_peak_contrast_h   [double]      H-maxima contrast threshold for
+%                                            resolving closely spaced bubbles.
+%                                            Controls the minimum NCC dip
+%                                            required between two peaks for
+%                                            them to be reported as separate
+%                                            detections.
+%                                            - h = 0 (default): falls back to
+%                                              imregionalmax (strict local max,
+%                                              original behavior).  Two adjacent
+%                                              pixels can never both be detected.
+%                                            - h > 0: uses imextendedmax, which
+%                                              reports any peak that rises at
+%                                              least h above its surrounding
+%                                              valley.  This can resolve two
+%                                              bubbles whose NCC peaks are only
+%                                              1-2 pixels apart, as long as the
+%                                              correlation dips by >= h between
+%                                              them.
+%                                            Typical range: 0.02–0.10.
+%                                            Lower h = more detections (higher
+%                                            sensitivity, risk of splitting
+%                                            noise into false positives).
+%                                            Higher h = fewer detections (higher
+%                                            specificity, safer but may merge
+%                                            close pairs).
+%
 %   roiMask      : [H x W logical]  OPTIONAL.  Binary spatial mask that
 %                  confines detection to a user-defined region of interest.
 %                  Pixels outside the mask are zeroed in the NCC map before
-%                  local-maxima detection, so they can never produce
-%                  candidates.
+%                  peak detection, so they can never produce candidates.
 %                  Pass [] or omit to process the entire image.
 %
 %                  --- Is ROI masking compatible with the NCC algorithm? ---
@@ -76,8 +102,32 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
 %   2.  Apply the correlation threshold tau_NCC (Eq. 3) to produce the NCC
 %       detection map CNCC(t).
 %   3.  Apply boundary exclusion and the optional ROI mask.
-%   4.  For each frame independently, find regional maxima and retain the
-%       top max_bubbles_per_frame candidates.
+%   4.  For each frame independently, find peaks and retain the top
+%       max_bubbles_per_frame candidates.
+%
+% PEAK DETECTION MODES:
+%   The peak-finding step (step 4) uses one of two strategies depending on
+%   the ncc_peak_contrast_h parameter:
+%
+%   MODE A — Standard (h = 0, default):
+%     Uses imregionalmax(cc_thresh), which requires a pixel to be STRICTLY
+%     GREATER than all 8 of its neighbours to be considered a peak.
+%     Consequence: two bubbles whose NCC peaks are on adjacent pixels
+%     (distance <= 1 px) can never both be detected.  The dimmer one is
+%     always suppressed.  This is safe for sparse bubble fields.
+%
+%   MODE B — H-maxima (h > 0):
+%     Uses imextendedmax(cc_thresh, h), which finds peaks that rise at
+%     least h units above their surrounding valley floor.
+%     Example: if two bubbles produce an NCC profile like
+%       [..., 0.60, 0.82, 0.75, 0.84, 0.55, ...]
+%     imregionalmax sees only the 0.84 peak (the 0.82 pixel has a higher
+%     neighbour at 0.84 to its right, so it fails the strict-maximum test).
+%     imextendedmax with h = 0.05 detects BOTH 0.82 and 0.84, because the
+%     valley between them (0.75) drops by 0.07 from 0.82 and 0.09 from
+%     0.84, both exceeding h.
+%     This mode is recommended for high-density bubble fields where PSFs
+%     overlap and adjacent detections are physically meaningful.
 %
 % TEMPLATE SIZE NOTE:
 %   The PSF kernel size SK presents a trade-off (paper Section IV.B):
@@ -86,6 +136,10 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
 %   The paper recommends SK = 5*lambda for in vivo studies.
 %
 % CHANGES FROM ORIGINAL VERSION:
+%   - Added h-maxima peak detection mode (ncc_peak_contrast_h parameter)
+%     using imextendedmax for resolving closely spaced bubbles in dense
+%     fields.  Falls back to imregionalmax when h = 0 (full backward
+%     compatibility).
 %   - Added roiMask (3rd argument) support.
 %   - Added strict validation of MB_image dimensions (must be odd in both
 %     axes to guarantee symmetric normxcorr2 cropping).
@@ -101,7 +155,7 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
 %   - Output table column order: Frame, X, Y, Intensity.
 %
 % AUTHOR: Grigori Shapiro, updated from Corazza et al. (2023) reference implementation.
-% DATE:   March 2026
+% DATE:   March 2026 (h-maxima extension: April 2026)
 
     % ------------------------------------------------------------------
     % 0. INPUT VALIDATION
@@ -114,6 +168,8 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
     template = locParams.MB_image;
     validateattributes(template, {'numeric'}, {'2d','nonempty'}, ...
         'detectBubbles_NCC', 'locParams.MB_image');
+
+    filteredData = abs(filteredData);
 
     % Both template dimensions must be odd for symmetric normxcorr2 cropping.
     % normxcorr2 pads the output by (template_size - 1) on each side;
@@ -144,6 +200,38 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
     tau   = locParams.crosscor_threshold;
     max_bpf = locParams.max_bubbles_per_frame;
 
+    % ------------------------------------------------------------------
+    % H-MAXIMA PARAMETER: controls whether to use imextendedmax (h > 0)
+    % or the classic imregionalmax (h = 0) for peak detection.
+    %
+    % When h = 0, behaviour is identical to the original implementation.
+    % When h > 0, two NCC peaks are reported as separate detections if
+    % the valley between them drops by at least h.  This resolves closely
+    % spaced bubbles that imregionalmax would merge into a single detection.
+    % ------------------------------------------------------------------
+    if isfield(locParams, 'ncc_peak_contrast_h') && ...
+            ~isempty(locParams.ncc_peak_contrast_h)
+        h_contrast = max(0, double(locParams.ncc_peak_contrast_h));
+    else
+        h_contrast = 0;   % default: classic imregionalmax (backward compat)
+    end
+
+    use_hmaxima = (h_contrast > 0);
+
+    % Log which peak-detection mode is active
+    if use_hmaxima
+        fprintf('  NCC detector: h-maxima mode (h = %.4f) — resolves closely spaced peaks\n', h_contrast);
+    else
+        fprintf('  NCC detector: strict regional-max mode (imregionalmax)\n');
+    end
+
+    if isfield(locParams, 'detection_threshold') && ~isempty(locParams.detection_threshold)
+        int_thresh = max(0, double(locParams.detection_threshold));
+    else
+        int_thresh = 0;
+    end
+    use_int_thresh = (int_thresh > 0);
+
     % Template half-extents used to crop normxcorr2 output back to [H x W].
     % normxcorr2(T, I) returns a matrix of size
     %   [size(I,1)+size(T,1)-1 x size(I,2)+size(T,2)-1]
@@ -155,10 +243,10 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
     MatIn_origin = abs(filteredData);
 
     % ------------------------------------------------------------------
-    % 1. NCC DETECTION MAP + BOUNDARY EXCLUSION + ROI
-    %    (Eqs. 2-3; parallelised over frames with parfor)
+    % 1. BOUNDARY EXCLUSION + ROI MASK (precomputed once)
     % ------------------------------------------------------------------
-    % Boundary-exclusion margins (same for NCC map and localisation)
+    % Boundary-exclusion margins ensure sub-pixel localisation kernels
+    % (centred on detected maxima) never extend beyond the image border.
     z_start = 2 + round(fwhmz / 2);
     z_end   = height - 1 - round(fwhmz / 2);
     x_start = 2 + round(fwhmx / 2);
@@ -177,20 +265,21 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
     combined_mask = combined_mask & roiMask;
 
     % ------------------------------------------------------------------
-    % 2. PER-FRAME NCC + LOCAL MAXIMA + CANDIDATE SELECTION (parfor)
+    % 2. PER-FRAME NCC + PEAK DETECTION + CANDIDATE SELECTION (parfor)
     % ------------------------------------------------------------------
-    % We merge steps 1-4 into a single parfor loop over frames.
+    % We merge all steps into a single parfor loop over frames.
     % This is more efficient than separate loops because:
     %   (a) normxcorr2 is the dominant cost and parallelises trivially;
-    %   (b) local-maxima search is then done on the already-computed map
+    %   (b) peak-finding is then done on the already-computed map
     %       without requiring a second pass over the data.
     %
     % parfor sliced variables:
     %   MatIn_origin(:,:,t)  — sliced along dimension 3 (valid parfor pattern)
     %   frame_results{t}     — classified as output cell array (valid)
     %
-    % The template, tau, max_bpf, combined_mask, half_rows, half_cols are
-    % broadcast variables (read-only scalars/arrays, copied to each worker).
+    % The template, tau, max_bpf, combined_mask, half_rows, half_cols,
+    % h_contrast, and use_hmaxima are broadcast variables (read-only
+    % scalars/arrays, copied to each worker).
 
     frame_results = cell(numberOfFrames, 1);
 
@@ -215,16 +304,68 @@ function candidateBubbles = detectBubbles_NCC(filteredData, locParams, roiMask)
         % --- Apply combined spatial mask (boundary exclusion + ROI) ---
         cc_thresh = cc_thresh .* combined_mask;
 
-        % --- Find regional maxima on the thresholded NCC map ---
-        % Processed per frame, consistent with Algorithm 1, lines 11-12.
-        local_max_mask = imregionalmax(cc_thresh);
+        % ==============================================================
+        % PEAK DETECTION — two modes depending on h_contrast
+        % ==============================================================
+        if use_hmaxima
+            % ---- MODE B: H-MAXIMA (imextendedmax) ----
+            %
+            % imextendedmax(I, h) finds all regional maxima of the H-maxima
+            % transform of I.  A peak is retained if it rises at least h
+            % units above the highest contour line that does NOT encircle
+            % any other peak.  Equivalently, two peaks are merged into one
+            % only if the valley between them is shallower than h.
+            %
+            % This allows detection of two bubbles whose NCC peaks are on
+            % adjacent or near-adjacent pixels, as long as a valley of
+            % depth >= h exists between them.  For NCC maps (values in
+            % [0, 1]), h in the range 0.02–0.10 is typically effective.
+            %
+            % Example with h = 0.05:
+            %   NCC profile: [..., 0.60, 0.82, 0.75, 0.84, 0.55, ...]
+            %   imregionalmax:  detects only 0.84 (0.82 < 0.84 neighbor)
+            %   imextendedmax:  detects BOTH 0.82 and 0.84
+            %     because valley 0.75 is 0.07 below 0.82 (> h)
+            %     and                   0.09 below 0.84 (> h)
+            %
+            % Note: imextendedmax requires non-negative input.  cc_thresh
+            % is already >= 0 due to the tau threshold above.
+            local_max_mask = imextendedmax(cc_thresh, h_contrast);
+        else
+            % ---- MODE A: STRICT REGIONAL MAXIMA (imregionalmax) ----
+            %
+            % Classic behaviour: a pixel is a peak only if it is strictly
+            % greater than ALL 8 of its neighbours.  Two adjacent pixels
+            % can never both be peaks.  This is safe for sparse fields
+            % but suppresses closely spaced bubbles.
+            local_max_mask = imregionalmax(cc_thresh);
+        end
+
         candidate_idx  = find(local_max_mask);
 
         if isempty(candidate_idx)
             frame_results{t} = zeros(0, 4, 'double');
             continue;
         end
-
+        
+        % Enforce normalized intensity threshold to reject weak candidates
+        if use_int_thresh
+            frame_max = max(orig_frame(:));
+            if frame_max > 0
+                frame_norm = orig_frame / frame_max;
+            else
+                frame_norm = orig_frame;
+            end
+            
+            valid_int_mask = frame_norm(candidate_idx) >= int_thresh;
+            candidate_idx = candidate_idx(valid_int_mask);
+            
+            if isempty(candidate_idx)
+                frame_results{t} = zeros(0, 4, 'double');
+                continue;
+            end
+        end
+        
         % NCC values at candidate positions (used for ranking)
         ncc_vals = cc_thresh(candidate_idx);
 

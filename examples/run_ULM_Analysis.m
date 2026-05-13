@@ -30,7 +30,7 @@
 clear;
 close all;
 clc;
-addpath(genpath(fileparts(fileparts(mfilename('fullpath')))));
+addpath(genpath(fileparts(mfilename('fullpath'))));
 
 fprintf('=======================================================\n');
 fprintf('    MATLAB Ultrasound Localization Microscopy Pipeline\n');

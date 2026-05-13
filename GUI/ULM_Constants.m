@@ -104,6 +104,17 @@ classdef ULM_Constants
         TOPHAT_MIN_RADIUS = 1;
         TOPHAT_MAX_RADIUS = 11;
         SHARPEN_MAX_AMOUNT = 2.0;
+
+        % === PLAYBACK / TIMERS ===
+        PLAYBACK_TIMER_PERIOD = 0.05;       % seconds per frame advance
+
+        % === PROCESSING ===
+        GAUSSIAN_FIT_BATCH_SIZE = 500;
+        SGOLAY_POLY_ORDER = 3;
+
+        % === DISPLAY ===
+        TRACK_COLORMAP_SIZE = 256;
+        RUN_BUTTON_COLOR = [0.6 1 0.6];
     end
     
     methods (Static)

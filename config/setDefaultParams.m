@@ -31,7 +31,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     
     % --- 1a. Core Settings (Paths & Methods) ---
     if nargin < 2 || isempty(user_data_folder)
-        user_data_folder = '';  % <-- Optionally hardcode your path here:
+        user_data_folder = 'L:\Ilovich Lab\In Vivo Data\22_1_26-3';  % <-- Optionally hardcode your path here:
                                 % e.g. user_data_folder = 'C:\MyData\Experiment_01';
         
         if isempty(user_data_folder)
@@ -53,23 +53,23 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     
     user_data_subfolder             = 'Bmode'; % 'Bmode'
     user_clutter_filter_method      = 'svd_filter';    % 'svd_filter', 'svd_ssm', 'dcc_svd', 'svd_blockwise'
-    user_cutoff_svd                 = [4, 450];      % SVD Cut off fre
+    user_cutoff_svd                 = [35, 200];      % SVD Cut off fre
     user_enable_butterworth         = false;           % use butterworth filter
 
     % --- Block-wise SVD Filter Settings ---
-    user_bsvd_threshold_method  = 'DopplerGradient'; % 'DopplerGradient','SSM','Hybrid','Manual'
-    user_bsvd_block_size_mm     = 4.0;    % Block size in mm (square). Set [] to auto.
+    user_bsvd_threshold_method  = 'SSM'; % 'DopplerGradient','SSM','Hybrid','Manual'
+    user_bsvd_block_size_mm     = 3.83;    % Block size in mm (square). Set [] to auto.
                                           % Auto-rule: smallest 10px-multiple with blk^2 > T.
                                           % Song et al. optimal: ~4mm for 0.05mm/px kidney data.
-    user_bsvd_overlap_pct       = 75.0;   % Overlap %. Use 93.75 for publication quality.
+    user_bsvd_overlap_pct       = 93.6;   % Overlap %. Use 93.75 for publication quality.
                                           % 75% gives ~4x speedup vs 93.75% (paper optimal).
     user_bsvd_manual_cutoff     = [10, 200]; % Only used if ThresholdMethod='Manual'
-    user_bsvd_tissue_freq_hz    = -1;     % Tissue Doppler freq threshold [Hz]. -1 = auto.
+    user_bsvd_tissue_freq_hz    = 17.5;     % Tissue Doppler freq threshold [Hz]. -1 = auto.
                                           % Auto: max(5, min(20, framerate/50)).
                                           % Adjust up (e.g. 15) for fast-moving tissue.
-    user_bsvd_mp_deviation_sigma = 2.0;   % Marchenko-Pastur sensitivity (high cutoff).
+    user_bsvd_mp_deviation_sigma = 3.86;   % Marchenko-Pastur sensitivity (high cutoff).
                                           % Higher = keeps fewer components as blood.
-    user_bsvd_gradient_pct      = 0.10;   % Cutoff 1A inflection sensitivity.
+    user_bsvd_gradient_pct      = 0.09;   % Cutoff 1A inflection sensitivity.
                                           % Lower = detects inflection earlier.
     user_bsvd_min_blood_comps   = 3;      % Floor: min blood components per block.
     user_bsvd_max_tissue_frac   = 0.60;   % Ceiling: max fraction of K as tissue.
@@ -80,8 +80,8 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_spatial_sigma1             = 0.5;           % Sigma 1
     user_spatial_sigma2             = 4.0;           % Sigma 2 (for DoG)
     
-    user_localization_method        = 'radial';          % 'radial', 'gaussian_fit', 'gaussian_fit_fast'
-    user_tracking_method            = 'Kalman';          % 'Hungarian', 'nn', 'Kalman', 'Kalman_Advanced'
+    user_localization_method        = 'gaussian_fit_fast';          % 'radial', 'gaussian_fit', 'gaussian_fit_fast'
+    user_tracking_method            = 'Kalman_v2';          % 'Hungarian', 'nn', 'Kalman', 'Kalman_Advanced'
     user_rendering_method           = 'histogram';       % 'histogram', 'gaussian'
 
     % --- 1b. Data Pre-processing (Masking & Cropping) ---
@@ -95,14 +95,14 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_vmask_gamma                = 1;           % Contrast
     user_vmask_threshold            = 0.081;       % Noise Threshold
     
-    user_enableInteractiveCrop      = false;     % Master switch for interactive cropping feature
+    user_enableInteractiveCrop      = true;     % Master switch for interactive cropping feature
     user_generateNewCrop            = false;     % true: draw a new crop rect; false: load existing 'cropBox.mat'
     user_cropPath                   = fullfile(user_data_folder, 'Results'); % Default path to save/load crop rectangle
 
     % --- 2. Localization & Detection Settings ---
-    user_detection_threshold        = 0.15;      % Sensitivity for bubble detection (0.0 to 1.0).
-    user_max_bubbles_per_frame      = 100;       % Max candidate bubbles to process per frame.
-    user_fwhm_pixels                = [1, 1]*3;  % Estimated bubble PSF size [x, z] in pixels.
+    user_detection_threshold        = 0.01;      % Sensitivity for bubble detection (0.0 to 1.0).
+    user_max_bubbles_per_frame      = 1000;       % Max candidate bubbles to process per frame.
+    user_fwhm_pixels                = [3, 3];  % Estimated bubble PSF size [x, z] in pixels.
                                                  % Set to NaN to auto-compute from acoustic wavelength: fwhm = (floor(λ/pixel_size)*2+1)
                                                  % Set to [x, z] (pixels) to override with a fixed value. A fixed odd integer (e.g., 3)
                                                  % is often more stable than the wavelength-derived value.
@@ -110,9 +110,13 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     % Advanced Detection Settings (NP & NCC) ---
     user_detect_method              = 'Intensity'; % Options: 'Intensity', 'NP', 'NCC'
     user_np_alpha0                  = 1e-4;        % False alarm rate for NP method (0 < alpha < 0.5)
-    user_ncc_threshold              = 0.7;         % Minimum correlation threshold for NCC method
+    user_ncc_threshold              = 0.55;         % Minimum correlation threshold for NCC method
+    user_h_contrast                 = 0.00;        % H-maxima contrast: minimum NCC dip between two peaks to report them 
+                                                   % as separate bubbles. 
+                                                   % 0 = strict mode (original), 
+                                                   % 0.02–0.10 = dense-field mode.
     user_psf_type                   = 'Gaussian';  % Options: 'Gaussian', 'Experimental'
-    user_psf_size                   = [5, 5];      % Kernel size for NCC template (MUST be odd numbers)
+    user_psf_size                   = [3, 3];      % Kernel size for NCC template (MUST be odd numbers)
     user_psf_file_path              = fullfile(user_data_folder, 'Results', 'Experimental_PSF.mat'); % Path to custom PSF
 
     % --- 3. Core Tracking Settings ---
@@ -147,8 +151,20 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     % --- 4b. Kalman Filter General Settings ---
     user_assignment_method          = 'hungarian'; % hungarian or nn (Nearest Neighbor)
     user_kalman_motion_model        = 'ConstantVelocity'; % 'ConstantVelocity' or 'ConstantAcceleration'
-    user_kalman_process_noise       = 3;                 % Kalman adaptability for standard tracker (e.g., 5-50).
+    user_kalman_process_noise       = 1;                 % Kalman adaptability for standard tracker (e.g., 5-50).
     
+    % --- 4c. Kalman Enhanced Tracking Settings ---
+    % These parameters control advanced behaviors of trackKalman_v2.
+    % All have sensible defaults and do not need to be changed for basic use.
+    user_kalman_process_noise_vel_scale = 0.1;     % Velocity scaling factor for adaptive Q.
+                                                   % Q_eff = Q_base * (1 + scale * speed).
+    user_kalman_mask_tolerance_frac     = 0.10;    % Max fraction of path points allowed outside the
+                                                   % vessel mask before the track is rejected (0.10 = 10%).
+    user_kalman_interpolate_gaps        = true;    % Include Kalman-predicted gap positions in the
+                                                   % output path_interpolated field for density rendering.
+    user_kalman_min_track_len_velocity  = 4;       % Tracks shorter than this get zero velocity
+                                                   % (still appear in density map, not in velocity map).
+
     % --- Settings for Advanced/Hierarchical Kalman Tracker ---
     % =========================================================================
     % HIERARCHICAL KALMAN TUNING GUIDE (Process & Measurement Noise)
@@ -166,7 +182,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     %    * DECREASE if localizations are highly precise (forces track to follow points exactly).
     % =========================================================================
     user_kalman_hk_alpha            = 0.01; % Process noise scaling factor (alpha * v_max)
-    user_kalman_hk_beta             = 0.025; % Measurement noise scaling factor (beta / level)
+    user_kalman_hk_beta             = 0.25; % Measurement noise scaling factor (beta / level)
     user_kalman_hk_forward_backward = true;  % Enable dual-pass tracking for maximum yield
     user_kalman_hk_v_max            = 20;       % [mm/s] Max velocity to track
     user_kalman_hk_num_levels       = 5;        % Number of levels
@@ -195,7 +211,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_track_smoothing_method     = 'sgolay';  % Options: 'rloess', 'sgolay', 'gaussian', 'movmean'
     user_track_interpolation_method = 'spline';  % Options: 'spline', 'pchip', 'linear', 'makima'
 
-    user_upsampling_factor          = 10;               % Final image upsampling factor.
+    user_upsampling_factor          = 5;               % Final image upsampling factor.
     user_interpolation_step = 1/user_upsampling_factor; % Step for interpolation (0.2 means 5x more points)
 
     % =========================================================================
@@ -264,6 +280,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     params.loc.DetectMethod = user_detect_method;
     params.loc.NP_alpha0 = user_np_alpha0;
     params.loc.crosscor_threshold = user_ncc_threshold;
+    params.loc.h_contrast = user_h_contrast;
     params.loc.psf_type = user_psf_type;
     params.loc.psf_size = user_psf_size;
     params.loc.psf_file_path = user_psf_file_path;
@@ -275,8 +292,6 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     params.loc.qc_max_roi_maxima = 3;
     params.loc.min_gradient_squared = 1e-6;
     params.loc.min_determinant = 1e-6;
-
-    params.loc.gauss_fit_box_radius = 2;
     params.loc.min_r_squared = 0.3;
 
     %% 4. Bubble Tracking Parameters
@@ -290,6 +305,12 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     params.track.kalman.assignment_method = user_assignment_method;
     params.track.kalman.motion_model = user_kalman_motion_model;
     params.track.kalman.process_noise = user_kalman_process_noise;
+    % --- Kalman v2 Enhanced Settings ---
+    params.track.kalman.process_noise_velocity_scale = user_kalman_process_noise_vel_scale;
+    params.track.kalman.mask_tolerance_fraction      = user_kalman_mask_tolerance_frac;
+    params.track.kalman.interpolate_gaps             = user_kalman_interpolate_gaps;
+    params.track.kalman.min_track_length_velocity    = user_kalman_min_track_len_velocity;
+
     % Advanced HK specific params
     params.track.kalman.hk_alpha = user_kalman_hk_alpha;
     params.track.kalman.hk_beta = user_kalman_hk_beta;

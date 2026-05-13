@@ -56,55 +56,97 @@ classdef UndoRedoManager < handle
             
             fprintf('[Undo] State saved: %s (stack size: %d)\n', operation, length(obj.undoStack));
         end
+
+        function push(obj, params)
+            % V3 alias for saveState — pushes a parameter snapshot.
+            obj.saveState(params, 'gui');
+        end
         
-        function params = undo(obj)
+        function params = undo(obj, currentParams)
+            % Undo: returns the previous parameter state.
+            %
+            % V3 call:  params = obj.undo(currentParams)
+            %           Stashes currentParams on the redo stack first.
+            % V2 call:  params = obj.undo()
+            %           Uses the top of the undo stack as the "current".
+ 
             if isempty(obj.undoStack)
                 warning('Nothing to undo');
                 params = [];
                 return;
             end
-            
-            % Pop current state to redo stack
-            currentState = obj.undoStack{end};
-            obj.undoStack(end) = [];
-            if ~isempty(obj.operations)          % keep in sync
-                obj.operations(end) = [];
-            end
-            obj.redoStack{end+1} = currentState;
-            
-            % Return the state now at the top of the stack (the "previous" state)
-            if ~isempty(obj.undoStack)
+ 
+            if nargin >= 2 && ~isempty(currentParams)
+                % --- V3 path: caller provides current state explicitly ---
+                % Push caller's current params onto redo stack
+                cur = struct();
+                cur.params    = obj.deepCopy(currentParams);
+                cur.timestamp = datetime('now');
+                cur.operation = 'before-undo';
+                obj.redoStack{end+1} = cur;
+ 
+                % Pop from undo stack
                 prevState = obj.undoStack{end};
+                obj.undoStack(end) = [];
+                if ~isempty(obj.operations)
+                    obj.operations(end) = [];
+                end
                 params = prevState.params;
-                fprintf('[Undo] Reversed: %s (back to: %s)\n', ...
-                    currentState.operation, prevState.operation);
+                fprintf('[Undo] Restored to: %s\n', prevState.operation);
             else
-                % stack is now empty — nothing left to restore.
-                % Return empty so caller knows undo reached the beginning.
-                fprintf('[Undo] Reached beginning of history.\n');
-                params = [];
+                % --- V2 path: original logic ---
+                currentState = obj.undoStack{end};
+                obj.undoStack(end) = [];
+                if ~isempty(obj.operations)
+                    obj.operations(end) = [];
+                end
+                obj.redoStack{end+1} = currentState;
+ 
+                if ~isempty(obj.undoStack)
+                    prevState = obj.undoStack{end};
+                    params = prevState.params;
+                    fprintf('[Undo] Reversed: %s (back to: %s)\n', ...
+                        currentState.operation, prevState.operation);
+                else
+                    fprintf('[Undo] Reached beginning of history.\n');
+                    params = [];
+                end
             end
         end
         
-        function params = redo(obj)
-            % Redo previously undone operation
+        function params = redo(obj, currentParams)
+            % Redo: returns the next (previously undone) parameter state.
             %
-            % Returns:
-            %   params: Next parameter state
-            
+            % V3 call:  params = obj.redo(currentParams)
+            %           Stashes currentParams on the undo stack first.
+            % V2 call:  params = obj.redo()
+ 
             if isempty(obj.redoStack)
                 warning('Nothing to redo');
-                params = [];
+                if nargin >= 2, params = currentParams; else, params = []; end
                 return;
             end
-            
+ 
+            if nargin >= 2 && ~isempty(currentParams)
+                % --- V3 path ---
+                cur = struct();
+                cur.params    = obj.deepCopy(currentParams);
+                cur.timestamp = datetime('now');
+                cur.operation = 'before-redo';
+                obj.undoStack{end+1} = cur;
+                obj.operations{end+1} = cur.operation;
+            end
+ 
             % Pop from redo stack
             nextState = obj.redoStack{end};
             obj.redoStack(end) = [];
-            
-            % Push back to undo stack
-            obj.undoStack{end+1} = nextState;
-            
+ 
+            if nargin < 2 || isempty(currentParams)
+                % V2 path: also push onto undo
+                obj.undoStack{end+1} = nextState;
+                obj.operations{end+1} = nextState.operation;
+            end
+ 
             params = nextState.params;
             fprintf('[Redo] Applied: %s\n', nextState.operation);
         end

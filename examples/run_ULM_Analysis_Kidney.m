@@ -75,14 +75,15 @@
 clear; 
 close all; 
 clc;
-addpath(genpath(fileparts(fileparts(mfilename('fullpath')))));
+
+addpath(genpath(fileparts(mfilename('fullpath'))));
 
 fprintf('=======================================================\n');
 fprintf('    MATLAB Ultrasound Localization Microscopy Pipeline\n');
 fprintf('=======================================================\n\n');
 
 %% ========================================================================
-%  1. USER CONFIGURATION & WORKFLOW CONTROL
+%  1. USER CONFIGURATION & WORKFLOW CONTROLq
 %  ========================================================================
 fprintf('\n>> STEP 1: CONFIGURATION\n');
 
@@ -98,14 +99,13 @@ data_subfolder2 = 'Bmode'; % Bmode or PI
 % --- Kidney Workflow Fine-Grained Controls ---
 % These switches only have an effect if 'isKidneyExperiment' is true.
 % They allow you to enable or disable specific, time-consuming steps.
-kidney_workflow.run_motion_analysis      = true; % Find and register frames with motion.
-kidney_workflow.clear_bad_frames         = true; % Remove the frames identified by motion analysis.
+kidney_workflow.run_motion_analysis      = false; % Find frames with motion.
+kidney_workflow.run_registration_analysis= false; % Make registration for good frames
+kidney_workflow.clear_bad_frames         = false; % Remove the frames identified by motion analysis.
 kidney_workflow.use_registered_data      = true;  % Point the processor to motion-corrected data.
 kidney_workflow.use_cleaned_data         = true;  % Point the processor to data with bad frames removed.
 kidney_workflow.display_kidney_overlay   = true;  % Generate B-mode overlay image at the end.
 kidney_workflow.apply_roi_mask           = false; % Apply the ROI mask before processing?
-
-MIN_TRACK_LENGTH = 3; %<-- TUNE THIS PARAMETER
 
 fprintf('   - Kidney-specific workflow is %s.\n', B_SWITCH(isKidneyExperiment));
 fprintf('   - ROI Masking is %s.\n', B_SWITCH(kidney_workflow.apply_roi_mask));
@@ -153,7 +153,7 @@ if isKidneyExperiment
 
     % --- 4a. Motion Analysis and Image Registration ---
     if kidney_workflow.run_motion_analysis
-        fprintf('   - Running motion analysis and registration...\n');
+        fprintf('   - Running motion analysis...\n');
         t_motion = tic;
         
         IQfiles_Bmode = dir(fullfile(bmode_folder, '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
@@ -192,29 +192,41 @@ if isKidneyExperiment
         load([[processor.general_results_dir filesep 'indices_to_remove'] '.mat']);
         
         %% Clearing Bad Frames from data
-        IQfiles_Bmode = dir(fullfile(bmode_folder, '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
-        IQfiles_PI = dir(fullfile(pi_folder, '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
-        remove_images(IQfiles_Bmode, indices_to_remove);
-        remove_images(IQfiles_PI, indices_to_remove);
+        if kidney_workflow.clear_bad_frames
+            IQfiles_Bmode = dir(fullfile(bmode_folder, '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
+            IQfiles_PI = dir(fullfile(pi_folder, '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
+            remove_images(IQfiles_Bmode, indices_to_remove);
+            remove_images(IQfiles_PI, indices_to_remove);
 
-        fprintf('   - Re-batching cleaned data into uniform files...\n');
-        IQfiles_Bmode = dir(fullfile(bmode_folder, 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
-        IQfiles_PI = dir(fullfile(pi_folder, 'BreathDeletion', '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
-        % Define the number of frames for each new file
-        frames_per_new_file = 200;
-        % Run the re-batching function for both B-mode and PI data
-        rebatch_data_files(IQfiles_Bmode, frames_per_new_file)
-        rebatch_data_files(IQfiles_PI, frames_per_new_file)
+            fprintf('   - Re-batching cleaned data into uniform files...\n');
+            IQfiles_Bmode = dir(fullfile(bmode_folder, 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
+            IQfiles_PI = dir(fullfile(pi_folder, 'BreathDeletion', '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
+            % Define the number of frames for each new file
+            frames_per_new_file = 200;
+            % Run the re-batching function for both B-mode and PI data
+            rebatch_data_files(IQfiles_Bmode, frames_per_new_file)
+            rebatch_data_files(IQfiles_PI, frames_per_new_file)
+    
+            % Correlation calculation
+            fprintf('--- Correlation calculation for Data after Breath Deletion --- \n\n')
+            IQfiles_Bmode = dir(fullfile(bmode_folder, 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
+            [correlation_after_BreathDeletion_no_mask, correlation_after_BreathDeletion_with_mask, fig1, fig2] = calculateAndPlotCorrelation(IQfiles_Bmode, mask); % IQfiles_Bmode
+            figure(fig1); title('Data after Breath Deletion - Without Mask');
+            figure(fig2); title('Data after Breath Deletion - With Mask');
+            % Save the correlation results
+            save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_no_mask'], 'correlation_after_BreathDeletion_no_mask');
+            save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_with_mask'], 'correlation_after_BreathDeletion_with_mask');
+        end
 
-        % Correlation calculation
-        fprintf('--- Correlation calculation for Data after Breath Deletion --- \n\n')
-        IQfiles_Bmode = dir(fullfile(bmode_folder, 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
-        [correlation_after_BreathDeletion_no_mask, correlation_after_BreathDeletion_with_mask, fig1, fig2] = calculateAndPlotCorrelation(IQfiles_Bmode, mask); % IQfiles_Bmode
-        figure(fig1); title('Data after Breath Deletion - Without Mask');
-        figure(fig2); title('Data after Breath Deletion - With Mask');
-        % Save the correlation results
-        save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_no_mask'], 'correlation_after_BreathDeletion_no_mask');
-        save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_with_mask'], 'correlation_after_BreathDeletion_with_mask');
+        fprintf('   - Motion analysis complete. (Took %.1f min)\n', toc(t_motion)/60);
+
+    else
+        fprintf('   - Motion analysis skipped by user.\n');
+    end
+
+    if kidney_workflow.run_registration_analysis
+        fprintf('   - Running registration analysis...\n');
+        t_reg = tic;
 
         %% register images
         % =================================================================
@@ -225,7 +237,7 @@ if isKidneyExperiment
         % non_rigid_mode = false (Rigid only for stability)
         
         fprintf('\n>>> STARTING PASS 1: Coarse Correction (Original Data) <<<\n');
-        
+
         %Build a ROI mask  
         fprintf('--- Build a ROI mask --- \n\n')
         IQfiles_Bmode = dir(fullfile(bmode_folder, 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
@@ -234,7 +246,7 @@ if isKidneyExperiment
         save([processor.general_results_dir filesep 'Mask2.mat'], 'mask2');
 
         load([[processor.general_results_dir filesep 'Mask2'] '.mat']);
-    
+
         IQfiles_Bmode = dir(fullfile(bmode_folder, '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
         IQfiles_PI    = dir(fullfile(pi_folder, '*.mat'));    IQfiles_PI    = sortFilesByNumber(IQfiles_PI);
 
@@ -246,7 +258,7 @@ if isKidneyExperiment
         % Save the correlation results
         save([processor.general_results_dir filesep 'correlation_for_register_no_mask'], 'correlation_for_register_no_mask');
         save([processor.general_results_dir filesep 'correlation_for_register_with_mask'], 'correlation_for_register_with_mask');
-        
+
         load([[processor.general_results_dir filesep 'correlation_for_register_no_mask'] '.mat']);
         load([[processor.general_results_dir filesep 'correlation_for_register_with_mask'] '.mat']);
 
@@ -283,42 +295,47 @@ if isKidneyExperiment
             dataStruct = load(fullfile(IQfiles_Bmode(1).folder, IQfiles_Bmode(1).name));
             dataFields = fieldnames(dataStruct);
             ImageData_tot = dataStruct.(dataFields{1});
-            params.expParams.size = size(ImageData_tot);
+            processor.params.expParams.size = size(ImageData_tot);
         end
         % implay(ImageData_tot); ceil(max(ImageData_tot,[],'all')/10)
+        
+        load([[processor.general_results_dir filesep 'indices_to_remove'] '.mat']);
 
         %% Clearing Bad Frames from registered data
-        IQfiles_Bmode = dir(fullfile(bmode_folder, 'registered', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
-        IQfiles_PI = dir(fullfile(pi_folder, 'registered', '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
-        remove_images(IQfiles_Bmode, indices_to_remove);
-        remove_images(IQfiles_PI, indices_to_remove);
-
-        fprintf('   - Re-batching cleaned data into uniform files...\n');
-        IQfiles_Bmode = dir(fullfile(bmode_folder, 'registered', 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
-        IQfiles_PI = dir(fullfile(pi_folder, 'registered', 'BreathDeletion', '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
-        % Define the number of frames for each new file
-        frames_per_new_file = 200;
-        % Run the re-batching function for both B-mode and PI data
-        rebatch_data_files(IQfiles_Bmode, frames_per_new_file)
-        rebatch_data_files(IQfiles_PI, frames_per_new_file)
-        
-        load([[processor.general_results_dir filesep 'Mask2'] '.mat']); % mask
-
-        % Correlation calculation
-        fprintf('--- Correlation calculation for Data after Breath Deletion and Motion Correction --- \n\n')
-        IQfiles_Bmode = dir(fullfile(bmode_folder, 'registered', 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
-        [correlation_after_BreathDeletion_MotionCorrection_no_mask, correlation_after_BreathDeletion_MotionCorrection_with_mask, fig1, fig2] = calculateAndPlotCorrelation(IQfiles_Bmode, mask2); % IQfiles_Bmode
-        figure(fig1); title('Data after Breath Deletion and Motion Correction - Without Mask');
-        figure(fig2); title('Data after Breath Deletion and Motion Correction - With Mask');
-        % Save the correlation results
-        save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_MotionCorrection_no_mask'], 'correlation_after_BreathDeletion_MotionCorrection_no_mask');
-        save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_MotionCorrection_with_mask'], 'correlation_after_BreathDeletion_MotionCorrection_with_mask');
-
-        fprintf('   - Motion analysis complete. (Took %.1f min)\n', toc(t_motion)/60);
-    else
-        fprintf('   - Motion analysis and registration skipped by user.\n');
-    end
+        if kidney_workflow.clear_bad_frames
+            IQfiles_Bmode = dir(fullfile(bmode_folder, 'registered', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
+            IQfiles_PI = dir(fullfile(pi_folder, 'registered', '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
+            remove_images(IQfiles_Bmode, indices_to_remove);
+            remove_images(IQfiles_PI, indices_to_remove);
     
+            fprintf('   - Re-batching cleaned data into uniform files...\n');
+            IQfiles_Bmode = dir(fullfile(bmode_folder, 'registered', 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
+            IQfiles_PI = dir(fullfile(pi_folder, 'registered', 'BreathDeletion', '*.mat')); IQfiles_PI = sortFilesByNumber(IQfiles_PI);
+            % Define the number of frames for each new file
+            frames_per_new_file = 200;
+            % Run the re-batching function for both B-mode and PI data
+            rebatch_data_files(IQfiles_Bmode, frames_per_new_file)
+            rebatch_data_files(IQfiles_PI, frames_per_new_file)
+            
+            load([[processor.general_results_dir filesep 'Mask2'] '.mat']); % mask
+    
+            % Correlation calculation
+            fprintf('--- Correlation calculation for Data after Breath Deletion and Motion Correction --- \n\n')
+            IQfiles_Bmode = dir(fullfile(bmode_folder, 'registered', 'BreathDeletion', '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
+            [correlation_after_BreathDeletion_MotionCorrection_no_mask, correlation_after_BreathDeletion_MotionCorrection_with_mask, fig1, fig2] = calculateAndPlotCorrelation(IQfiles_Bmode, mask2); % IQfiles_Bmode
+            figure(fig1); title('Data after Breath Deletion and Motion Correction - Without Mask');
+            figure(fig2); title('Data after Breath Deletion and Motion Correction - With Mask');
+            % Save the correlation results
+            save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_MotionCorrection_no_mask'], 'correlation_after_BreathDeletion_MotionCorrection_no_mask');
+            save([processor.general_results_dir filesep 'correlation_after_BreathDeletion_MotionCorrection_with_mask'], 'correlation_after_BreathDeletion_MotionCorrection_with_mask');
+        end
+
+        fprintf('   - Registration analysis complete. (Took %.1f min)\n', toc(t_reg)/60);
+    
+    else
+        fprintf('   - Registration analysis skipped by user.\n');
+    end
+
     % --- 4c. Update Data Path for the Main Processor ---
     % Point the main processor to the corrected data folders.
     if kidney_workflow.use_registered_data
@@ -330,29 +347,25 @@ if isKidneyExperiment
     elseif kidney_workflow.use_cleaned_data
         data_subfolder2 = fullfile(data_subfolder2, 'BreathDeletion');
     end
-    
-    input_data_folder = fullfile(params.io.data_folder, params.expParams.bubbleType, params.io.data_subfolder);
+    processor.params.io.data_subfolder = data_subfolder2;
+
+    input_data_folder = fullfile(processor.params.io.data_folder, processor.params.expParams.bubbleType, processor.params.io.data_subfolder);
+    processor.set_data_dir(input_data_folder);
     IQfiles_Bmode = dir(fullfile(input_data_folder, '*.mat')); IQfiles_Bmode = sortFilesByNumber(IQfiles_Bmode);
     dataStruct = load(fullfile(IQfiles_Bmode(1).folder, IQfiles_Bmode(1).name));
     dataFields = fieldnames(dataStruct);
     ImageData_tot = dataStruct.(dataFields{1});
-    params.expParams.size = size(ImageData_tot);
-
-    if kidney_workflow.use_registered_data
-        % IMPORTANT: Update the params struct to point the processor to the new data location.
-        params.io.data_subfolder = data_subfolder2;
-        processor = ULM_Processor(params);
-    end
+    processor.params.expParams.size = size(ImageData_tot);
 
     fprintf('   - Main processor will now use data from: %s\n', processor.data_dir);
     
 else
     fprintf('\n>> STEP 4: Kidney pre-processing workflow skipped.\n');
-    originalFolder = fullfile(params.io.data_folder, params.expParams.bubbleType, params.io.data_subfolder, 'original');
+    originalFolder = fullfile(processor.params.io.data_folder, processor.params.expParams.bubbleType, processor.params.io.data_subfolder, 'original');
     if ~exist(originalFolder, 'dir')
         % Dividing the superframes into smaller batches of 1500 frames - for both Bmode and PI
         fprintf('--- Divides the superframes into batches --- \n\n')
-        %split_ImageData_tot_Kidney(fullfile(params.io.data_folder, params.expParams.bubbleType), params.expParams.bubbleType, 1500)
+        %split_ImageData_tot_Kidney(fullfile(processor.params.io.data_folder, processor.params.expParams.bubbleType), processor.params.expParams.bubbleType, 1500)
     end
     processor = ULM_Processor(params);
 end
@@ -371,17 +384,17 @@ processor.Step0_InitializeBoundaries();
 
 % Define full file paths including the .mat extension
 % (Required for the 'exist' function to work correctly)
-file_vessel_path = fullfile(processor.general_results_dir, ['mean_bmode_vessel_', num2str(params.render.upsampling_factor),'.mat']);
-file_tissue_path = fullfile(processor.general_results_dir, ['mean_bmode_tissue_', num2str(params.render.upsampling_factor),'.mat']);
+file_vessel_path = fullfile(processor.general_results_dir, ['mean_bmode_vessel_', num2str(processor.params.render.upsampling_factor),'.mat']);
+file_tissue_path = fullfile(processor.general_results_dir, ['mean_bmode_tissue_', num2str(processor.params.render.upsampling_factor),'.mat']);
 
 % Define full file paths for the PNG images (Same name, different extension)
-file_vessel_png = fullfile(processor.general_results_dir, ['mean_bmode_vessel_', num2str(params.render.upsampling_factor),'.png']);
-file_tissue_png = fullfile(processor.general_results_dir, ['mean_bmode_tissue_', num2str(params.render.upsampling_factor),'.png']);
+file_vessel_png = fullfile(processor.general_results_dir, ['mean_bmode_vessel_', num2str(processor.params.render.upsampling_factor),'.png']);
+file_tissue_png = fullfile(processor.general_results_dir, ['mean_bmode_tissue_', num2str(processor.params.render.upsampling_factor),'.png']);
 
 % --- Process Vessel ---
 if ~exist(file_vessel_path, 'file')
     disp('Generating mean_bmode_vessel...');
-    mean_bmode_vessel = generate_mean_bmode_image(processor.data_files, params, 0);
+    mean_bmode_vessel = generate_mean_bmode_image(processor.data_files, processor.params, 0);
     save(file_vessel_path, 'mean_bmode_vessel');
 else
     load(file_vessel_path, 'mean_bmode_vessel');
@@ -394,7 +407,7 @@ imwrite(mat2gray(mean_bmode_vessel), file_vessel_png);
 % --- Process Tissue ---
 if ~exist(file_tissue_path, 'file')
     disp('Generating mean_bmode_tissue...');
-    mean_bmode_tissue = generate_mean_bmode_image(processor.data_files, params, 1);
+    mean_bmode_tissue = generate_mean_bmode_image(processor.data_files, processor.params, 1);
     save(file_tissue_path, 'mean_bmode_tissue');
 else
     load(file_tissue_path, 'mean_bmode_tissue');
@@ -402,7 +415,7 @@ end
 
 % Save Tissue PNG
 imwrite(mat2gray(mean_bmode_tissue), file_tissue_png);
-    
+
 processor.run_localization_and_tracking_loop();
 totalTime = toc;
 fprintf('   - Pipeline execution and track aggregation finished in %.1f minutes.\n', totalTime / 60);
@@ -434,7 +447,7 @@ end
 try
     fprintf('   - Generating and displaying final images...\n');
     
-    res = params.render.upsampling_factor;
+    res = processor.params.render.upsampling_factor;
     res_points       = [1, 3, 5];
     fontsize_points  = [6, 8, 10];
     linewidth_points = [2, 4, 5];
@@ -456,7 +469,7 @@ try
     title(title_str, 'FontSize', 10);
     clb = colorbar;
     clb.Label.String = 'Counts^{1/3}';
-    add_scale_bar(params, size(processor.densityMap), linewidth, fontsize);
+    add_scale_bar(processor.params, size(processor.densityMap), linewidth, fontsize);
     filename = sprintf('Density_Map_minLen_%d.png', MIN_TRACK_LENGTH(i));
     export_fig(fig_density, fullfile(processor.results_dir, filename), '-png', '-r300');
 
@@ -474,7 +487,7 @@ try
     title(title_str, 'FontSize', 10);
     clb = colorbar;
     clb.Label.String = 'Velocity [mm/s]';
-    add_scale_bar(params, size(processor.velocityMap), linewidth, fontsize);
+    add_scale_bar(processor.params, size(processor.velocityMap), linewidth, fontsize);
     filename = sprintf('Velocity_Map_Filtered_minLen_%d.png', MIN_TRACK_LENGTH(i));
     export_fig(fig_vel_filt, fullfile(processor.results_dir, filename), '-png', '-r300');
 
@@ -490,7 +503,7 @@ try
     title(title_str, 'FontSize', 10);
     clb = colorbar;
     clb.Label.String = 'Velocity [mm/s]';
-    add_scale_bar(params, size(processor.velocityMap), linewidth, fontsize);
+    add_scale_bar(processor.params, size(processor.velocityMap), linewidth, fontsize);
     filename = sprintf('Velocity_Map_Unfiltered_minLen_%d.png', MIN_TRACK_LENGTH(i));
     export_fig(fig_vel_unfilt, fullfile(processor.results_dir, filename), '-png', '-r300');
 
@@ -499,7 +512,16 @@ try
         fprintf('   - Generating overlay image...\n');
 
         load(file_vessel_path);
-        mean_bmode = mean_bmode_vessel;
+        if isfield(processor.metadata, 'cropRect')
+            rect = processor.metadata.cropRect; % [xmin, ymin, width, height] in original px
+            res = processor.params.render.upsampling_factor;
+            
+            % Scale crop to super-resolution coordinates
+            rect_SR = round([(rect(1:2) - 1) * res + 1, rect(3:4) * res]);
+            
+            % Crop the mean B-mode to match the density map size
+            mean_bmode = imcrop(mean_bmode_vessel, rect_SR);
+        end
 
         if ndims(mean_bmode) == 3, bmode_gray = rgb2gray(mean_bmode); else, bmode_gray = mean_bmode; end
         bmode_adjusted = adapthisteq(mat2gray(bmode_gray));
@@ -650,7 +672,7 @@ try
     clb = colorbar;
     clb.Label.String = 'Velocity [mm/s]';
     clb.Color = [0 0 0]; % Explicitly set text to Black
-    add_scale_bar(params, size(processor.velocityMap), linewidth, fontsize);
+    add_scale_bar(processor.params, size(processor.velocityMap), linewidth, fontsize);
     filename = sprintf('Combined_VelDens_Map_minLen_%d.png', MIN_TRACK_LENGTH(i));
     export_fig(fig_combined, fullfile(processor.results_dir, filename), '-png', '-r300');
     
@@ -1038,6 +1060,10 @@ function rebatch_data_files(IQfiles, framesPerFile)
 %      datasets without loading everything into RAM.
 %   4. CLEANUP: After successfully processing, the original files listed in
 %      'IQfiles' are deleted from the disk.
+%   5. OVERWRITE PROTECTION: New files are written to a temporary subfolder
+%      first, then moved to the source folder only after the originals are
+%      safely deleted. This prevents data loss when input and output
+%      filenames collide.
 %
 % =========================================================================
 %                                 INPUTS
@@ -1059,6 +1085,12 @@ function rebatch_data_files(IQfiles, framesPerFile)
     % Determine the working folder from the first file in the list
     sourceFolder = IQfiles(1).folder;
     
+    % Create a temporary subfolder to avoid overwriting input files
+    tempFolder = fullfile(sourceFolder, '_rebatch_temp');
+    if ~exist(tempFolder, 'dir')
+        mkdir(tempFolder);
+    end
+    
     fprintf('--- Starting re-batching process ---\n');
     fprintf('    Source folder: %s\n', sourceFolder);
     fprintf('    Input files: %d\n', length(IQfiles));
@@ -1068,6 +1100,7 @@ function rebatch_data_files(IQfiles, framesPerFile)
     outputBuffer = [];
     newFileCounter = 1;
     processedFiles = {}; % Track files that were actually loaded
+    savedFiles = {};     % Track new files written to temp folder
     
     % --- Step 1: Process files in a streaming buffer ---
     for i = 1:length(IQfiles)
@@ -1116,13 +1149,14 @@ function rebatch_data_files(IQfiles, framesPerFile)
             % Remove those frames from the buffer
             outputBuffer = outputBuffer(:, :, framesPerFile+1:end);
             
-            % Generate new file name
+            % Generate new file name and save to TEMP folder
             newFileName = sprintf('Rebatched_Data_%03d.mat', newFileCounter);
-            newFilePath = fullfile(sourceFolder, newFileName);
+            newFilePath = fullfile(tempFolder, newFileName);
             
             % Save as 'ImageData_tot' for consistency with other tools
             ImageData_tot = currentChunk; 
             save(newFilePath, 'ImageData_tot', '-v7.3');
+            savedFiles{end+1} = newFileName;
             
             fprintf('        --> Saved %s (%d frames)\n', newFileName, size(ImageData_tot, 3));
             newFileCounter = newFileCounter + 1;
@@ -1132,21 +1166,27 @@ function rebatch_data_files(IQfiles, framesPerFile)
     % --- Step 3: Save remaining frames ---
     if ~isempty(outputBuffer)
         newFileName = sprintf('Rebatched_Data_%03d.mat', newFileCounter);
-        newFilePath = fullfile(sourceFolder, newFileName);
+        newFilePath = fullfile(tempFolder, newFileName);
         
         ImageData_tot = outputBuffer;
         save(newFilePath, 'ImageData_tot', '-v7.3');
+        savedFiles{end+1} = newFileName;
         fprintf('        --> Saved final file %s (%d frames)\n', newFileName, size(ImageData_tot, 3));
     end
     
-    % --- Step 4: Delete original files ---
-    % Only delete files that were successfully added to the buffer
+    % --- Step 4: Delete originals, then move new files into place ---
     if ~isempty(processedFiles)
         fprintf('    Deleting %d original files...\n', length(processedFiles));
         for k = 1:length(processedFiles)
             delete(processedFiles{k});
         end
     end
+    
+    % Move new files from temp folder to source folder
+    for k = 1:length(savedFiles)
+        movefile(fullfile(tempFolder, savedFiles{k}), fullfile(sourceFolder, savedFiles{k}));
+    end
+    rmdir(tempFolder);
     
     fprintf('--- Re-batching complete. ---\n\n');
 end
@@ -1248,8 +1288,8 @@ function indices_to_remove = calculate_indices_to_remove(savingpath, expected_bp
                                       % to find the true minimum in the raw signal.
     
     % --- Region Definition Step ---
-    region_width_coeff_start = -0.5; % -0.3 
-    region_width_coeff_end = +0.3; % +1.2
+    region_width_coeff_start = -0.5; % -0.3 tali kidney  -0.6
+    region_width_coeff_end = +0.3; % +1.2 tali kidney    +0.8
         % TUNABLE: Multiplier for standard deviation to set the start/end
         % of the removal region. A more negative value (e.g., -0.5)
         % will result in a WIDER removal region around each breath.
@@ -1728,7 +1768,7 @@ function run_rigid_motion_correction_workflow(IQfiles_Bmode, IQfiles_PI, indices
     global_frame_offset = 0;
     
     for i = 1:Nbuffers
-        fprintf('   [Analyze] Batch %d/%d (Start: %s)...\n', i, Nbuffers, datetime("now", "Format", "HH:mm:ss"));
+        fprintf('   [Analyze] Batch %d/%d (Start: %s)...\n', i, Nbuffers, datestr(now, 'HH:MM:SS'));
         
         dataStruct = load(fullfile(IQfiles_Bmode(i).folder, IQfiles_Bmode(i).name));
         fieldname = fieldnames(dataStruct);
@@ -1833,7 +1873,7 @@ function run_rigid_motion_correction_workflow(IQfiles_Bmode, IQfiles_PI, indices
     global_frame_offset = 0;
     
     for i = 1:Nbuffers
-        fprintf('   [Save] Batch %d/%d (Start: %s)...\n', i, Nbuffers, datetime("now", "Format", "HH:mm:ss"));
+        fprintf('   [Save] Batch %d/%d (Start: %s)...\n', i, Nbuffers, datestr(now, 'HH:MM:SS'));
         
         dataStruct = load(fullfile(IQfiles_Bmode(i).folder, IQfiles_Bmode(i).name));
         fieldname = fieldnames(dataStruct);

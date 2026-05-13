@@ -173,6 +173,22 @@ function tracks = trackNearestNeighbor(localizations, params, indent_prefix)
     tracks = formatTracks(terminatedTracks, params, indent_prefix);
 
     fprintf('%sNN tracking complete. Found %d valid tracks after QC.\n', indent_prefix, length(tracks));
+
+    total_initial_locs = height(localizations);
+    if ~isempty(tracks)
+        total_locs_in_tracks = sum([tracks.length]);
+    else
+        total_locs_in_tracks = 0;
+    end
+    untracked_locs = total_initial_locs - total_locs_in_tracks;
+    
+    fprintf('%s  - Total localizations in tracks: %d\n', indent_prefix, total_locs_in_tracks);
+    if total_initial_locs > 0
+        untracked_percent = 100 * untracked_locs / total_initial_locs;
+        fprintf('%s  - Un-tracked localizations: %d (%.1f%% of total)\n', indent_prefix, untracked_locs, untracked_percent);
+    else
+        fprintf('%s  - Un-tracked localizations: 0\n', indent_prefix);
+    end
 end
 
 %% ========================================================================

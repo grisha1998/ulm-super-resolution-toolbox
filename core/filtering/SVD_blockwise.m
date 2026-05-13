@@ -122,6 +122,7 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
     addParameter(p, 'MaxTissueFraction',        0.60);
     addParameter(p, 'PlotThresholdMaps',        false);
     addParameter(p, 'IndentPrefix',            '');
+    addParameter(p, 'Verbose', true);
     parse(p, varargin{:});
     opt = p.Results;
 
@@ -192,8 +193,10 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
         if isscalar(sz_mm), sz_mm = [sz_mm, sz_mm]; end
         blk_z = max(1, round(sz_mm(1) / pixel_z_mm));
         blk_x = max(1, round(sz_mm(2) / pixel_x_mm));
-        fprintf('%sBlock size from mm spec: [%.1f x %.1f mm] -> [%d x %d px]\n', ...
+        if opt.Verbose
+            fprintf('%sBlock size from mm spec: [%.1f x %.1f mm] -> [%d x %d px]\n', ...
             pfx, sz_mm(1), sz_mm(2), blk_z, blk_x);
+        end
 
     elseif ~isempty(opt.BlockSizePx)
         sz = opt.BlockSizePx;
@@ -206,8 +209,10 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
         min_side = max(22, ceil(sqrt(T)) + 1);
         blk_auto = ceil(min_side / 10) * 10;
         blk_z = blk_auto;  blk_x = blk_auto;
-        fprintf('%sBlock size auto-set: [%d x %d px] (min for T=%d: %d px)\n', ...
+        if opt.Verbose
+            fprintf('%sBlock size auto-set: [%d x %d px] (min for T=%d: %d px)\n', ...
             pfx, blk_z, blk_x, T, min_side);
+        end
     end
 
     % Clamp to image dimensions
@@ -238,42 +243,54 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
     % =========================================================================
     % 6. PHYSICS-AWARE CONSOLE REPORT
     % =========================================================================
-    bar = repmat('-', 1, 60);
-    fprintf('%s%s\n', pfx, bar);
-    fprintf('%s SVD_blockwise — configuration summary\n', pfx);
-    fprintf('%s%s\n', pfx, bar);
-    fprintf('%s  Data:           [%d x %d] px,  T=%d frames,  FR=%.0f Hz\n', ...
-        pfx, H, W, T, framerate);
-    if has_pixel_size
-        fprintf('%s  Pixel size:     z=%.3f mm,  x=%.3f mm\n', ...
-            pfx, pixel_z_mm, pixel_x_mm);
-        fprintf('%s  Block size:     [%d x %d px]  =  [%.2f x %.2f mm]\n', ...
-            pfx, blk_z, blk_x, blk_z*pixel_z_mm, blk_x*pixel_x_mm);
-        fprintf('%s  Step size:      [%d x %d px]  =  [%.2f x %.2f mm]\n', ...
-            pfx, step_z, step_x, step_z*pixel_z_mm, step_x*pixel_x_mm);
-    else
-        fprintf('%s  Block size:     [%d x %d px]  (pixel size not available)\n', ...
-            pfx, blk_z, blk_x);
-        fprintf('%s  Step size:      [%d x %d px]\n', pfx, step_z, step_x);
+    if opt.Verbose
+        bar = repmat('-', 1, 60);
+        fprintf('%s%s\n', pfx, bar);
+        fprintf('%s SVD_blockwise — configuration summary\n', pfx);
+        fprintf('%s%s\n', pfx, bar);
+        fprintf('%s  Data:           [%d x %d] px,  T=%d frames,  FR=%.0f Hz\n', ...
+            pfx, H, W, T, framerate);
+        if has_pixel_size
+            fprintf('%s  Pixel size:     z=%.3f mm,  x=%.3f mm\n', ...
+                pfx, pixel_z_mm, pixel_x_mm);
+            fprintf('%s  Block size:     [%d x %d px]  =  [%.2f x %.2f mm]\n', ...
+                pfx, blk_z, blk_x, blk_z*pixel_z_mm, blk_x*pixel_x_mm);
+            fprintf('%s  Step size:      [%d x %d px]  =  [%.2f x %.2f mm]\n', ...
+                pfx, step_z, step_x, step_z*pixel_z_mm, step_x*pixel_x_mm);
+        else
+            fprintf('%s  Block size:     [%d x %d px]  (pixel size not available)\n', ...
+                pfx, blk_z, blk_x);
+            fprintf('%s  Step size:      [%d x %d px]\n', pfx, step_z, step_x);
+        end
+        fprintf('%s  Overlap:        z=%.1f%%  x=%.1f%%\n', pfx, ach_ov_z, ach_ov_x);
+        fprintf('%s  SVD constraint: blk_z*blk_x=%d > T=%d  [%s]\n', ...
+            pfx, blk_z*blk_x, T, yesno(blk_z*blk_x > T));
+        fprintf('%s  Method:         %s\n', pfx, method);
+        if strcmpi(method,'Manual')
+            fprintf('%s  Manual cutoff:  [%d, %d]\n', pfx, ...
+                opt.ManualCutoff(1), opt.ManualCutoff(2));
+        else
+            fprintf('%s  Tissue f_thr:   %.1f Hz\n', pfx, freq_thr);
+            fprintf('%s  MP sigma:       %.1f\n', pfx, opt.MPDeviationSigma);
+        end
+        mem_mb = blk_z * blk_x * T * 8 * 2 / 1e6;   % 2x for complex
+        fprintf('%s  Est. mem/block: ~%.1f MB\n', pfx, mem_mb);
+        fprintf('%s%s\n', pfx, bar);
     end
-    fprintf('%s  Overlap:        z=%.1f%%  x=%.1f%%\n', pfx, ach_ov_z, ach_ov_x);
-    fprintf('%s  SVD constraint: blk_z*blk_x=%d > T=%d  [%s]\n', ...
-        pfx, blk_z*blk_x, T, yesno(blk_z*blk_x > T));
-    fprintf('%s  Method:         %s\n', pfx, method);
-    if strcmpi(method,'Manual')
-        fprintf('%s  Manual cutoff:  [%d, %d]\n', pfx, ...
-            opt.ManualCutoff(1), opt.ManualCutoff(2));
-    else
-        fprintf('%s  Tissue f_thr:   %.1f Hz\n', pfx, freq_thr);
-        fprintf('%s  MP sigma:       %.1f\n', pfx, opt.MPDeviationSigma);
-    end
-    mem_mb = blk_z * blk_x * T * 8 * 2 / 1e6;   % 2x for complex
-    fprintf('%s  Est. mem/block: ~%.1f MB\n', pfx, mem_mb);
-    fprintf('%s%s\n', pfx, bar);
 
     % =========================================================================
     % 7. GENERATE BLOCK GRID
     % =========================================================================
+    if H < blk_z || W < blk_x
+        warning('SVD_blockwise:ImageTooSmall', ...
+            '%sImage [%dx%d] is smaller than block [%dx%d]. Falling back to global SVD.', ...
+            pfx, H, W, blk_z, blk_x);
+        filtered_Data = SVD_filter(rawData, [max(1, round(0.10*T)), round(0.80*T)]);
+        diagnostics = struct('low_cutoff_map', [], 'high_cutoff_map', [], ...
+            'n_blocks', 0, 'block_size_px', [blk_z, blk_x], 'step_px', [0,0], ...
+            'overlap_pct', [0,0], 'elapsed_sec', 0, 'threshold_method', method);
+        return;
+    end
     i_starts = unique([1 : step_z : (H - blk_z + 1), H - blk_z + 1]);
     j_starts = unique([1 : step_x : (W - blk_x + 1), W - blk_x + 1]);
     i_starts = i_starts(i_starts >= 1 & i_starts + blk_z - 1 <= H);
@@ -282,8 +299,10 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
     n_row  = numel(i_starts);
     n_col  = numel(j_starts);
     n_blks = n_row * n_col;
-    fprintf('%s  Block grid:     %d rows x %d cols = %d blocks\n', ...
-        pfx, n_row, n_col, n_blks);
+    if opt.Verbose
+        fprintf('%s  Block grid:     %d rows x %d cols = %d blocks\n', ...
+            pfx, n_row, n_col, n_blks);
+    end
 
     % Flatten block list for parfor indexing
     block_list = zeros(n_blks, 2, 'int32');
@@ -295,18 +314,20 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
         end
     end
 
-    % =========================================================================
-    % 8. PER-BLOCK SVD + THRESHOLD ESTIMATION  (parfor)
+% =========================================================================
+    % 8. PER-BLOCK SVD + THRESHOLD + ACCUMULATION (memory-efficient)
     %
-    % PARALLELISM STRATEGY:
-    %   - parfor processes each block independently (no shared state).
-    %   - Results stored in a cell array (parfor-safe output variable).
-    %   - Sequential accumulation loop follows — this is the only correct
-    %     way to handle overlapping writes in MATLAB parfor.
+    % STRATEGY:
+    %   Instead of parfor → cell array → sequential accumulation (which stores
+    %   ALL blood blocks in RAM simultaneously and causes OOM), we process in
+    %   small batches. Each batch uses parfor for speed, then immediately
+    %   accumulates results and frees the batch memory.
+    %
+    %   Memory footprint: O(H*W*T) for accumulator + O(batch_size * block)
+    %   instead of O(n_blks * block) which explodes at high overlap.
     % =========================================================================
-    block_results = cell(n_blks, 1);
 
-    % Cache options as scalars for parfor broadcast (structs are broadcast vars)
+    % Cache options as scalars for parfor broadcast
     par_method      = method;
     par_freq_thr    = freq_thr;
     par_mp_sigma    = opt.MPDeviationSigma;
@@ -317,100 +338,135 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
     par_use_doppler = uses_doppler;
     par_fr          = framerate;
 
-    t_wall = tic;
-    fprintf('%s  Processing blocks...\n', pfx);
-
-    parfor b_idx = 1:n_blks
-        r1 = block_list(b_idx, 1);
-        c1 = block_list(b_idx, 2);
-        r2 = r1 + blk_z - 1;
-        c2 = c1 + blk_x - 1;
-
-        % Build Casorati matrix for this block
-        casorati = reshape(rawData(r1:r2, c1:c2, :), blk_z * blk_x, T);
-
-        % SVD — 'econ' returns min(spatial, T) components
-        [U, S_mat, V] = svd(casorati, 'econ');
-        S_vec = diag(S_mat);
-        K     = numel(S_vec);
-
-        % Determine cutoff indices
-        switch upper(par_method)
-
-            case 'DOPPLERGRADIENT'
-                [cut_lo, cut_hi] = blk_DopplerGradient( ...
-                    S_vec, V, par_fr, par_freq_thr, par_mp_sigma, ...
-                    par_grad_pct, par_use_doppler, par_max_tissue, K);
-
-            case 'SSM'
-                [cut_lo, cut_hi] = blk_SSM( ...
-                    U, S_vec, V, par_fr, par_mp_sigma, par_max_tissue, K);
-
-            case 'HYBRID'
-                [cut_lo, ~]      = blk_SSM( ...
-                    U, S_vec, V, par_fr, par_mp_sigma, par_max_tissue, K);
-                [~,      cut_hi] = blk_DopplerGradient( ...
-                    S_vec, V, par_fr, par_freq_thr, par_mp_sigma, ...
-                    par_grad_pct, par_use_doppler, par_max_tissue, K);
-
-            case 'MANUAL'
-                cut_lo = par_manual(1);
-                cut_hi = par_manual(2);
-
-            otherwise
-                cut_lo = max(1, round(0.10 * K));
-                cut_hi = round(0.80 * K);
-        end
-
-        % Clamp and enforce minimum blood components
-        cut_lo = max(1,  min(cut_lo, K - par_min_blood));
-        cut_hi = min(K,  max(cut_hi, cut_lo + par_min_blood - 1));
-
-        % Reconstruct blood signal for this block
-        idx          = cut_lo : cut_hi;
-        blood_matrix = U(:, idx) * S_mat(idx, idx) * V(:, idx)';
-        blood_block  = reshape(blood_matrix, blk_z, blk_x, T);
-
-        % Pack result for sequential accumulation
-        block_results{b_idx} = {blood_block, int32(cut_lo), int32(cut_hi), ...
-                                 int32(r1), int32(r2), int32(c1), int32(c2)};
-    end  % parfor
-
-    fprintf('%s  parfor done in %.1f s. Accumulating...\n', pfx, toc(t_wall));
-
-    % =========================================================================
-    % 9. SEQUENTIAL ACCUMULATION  (Eq. 1 in the paper)
-    % =========================================================================
+    % Pre-allocate accumulator arrays (only ONE full-volume array needed)
     accumulator    = zeros(H, W, T, 'double');
     hit_count      = zeros(H, W,    'double');
-    low_cut_sum    = zeros(H, W,    'double');   % for threshold maps
+    low_cut_sum    = zeros(H, W,    'double');
     high_cut_sum   = zeros(H, W,    'double');
-    cut_hit        = zeros(H, W,    'double');   % weight for map averaging
+    cut_hit        = zeros(H, W,    'double');
 
-    for b_idx = 1:n_blks
-        res = block_results{b_idx};
-        blk_data = res{1};
-        cut_lo   = double(res{2});   cut_hi = double(res{3});
-        r1 = double(res{4});  r2 = double(res{5});
-        c1 = double(res{6});  c2 = double(res{7});
-
-        accumulator(r1:r2, c1:c2, :) = accumulator(r1:r2, c1:c2, :) + blk_data;
-        hit_count(r1:r2, c1:c2)      = hit_count(r1:r2, c1:c2) + 1;
-
-        % Store threshold value at block centre
-        r_mid = round((r1 + r2) / 2);
-        c_mid = round((c1 + c2) / 2);
-        low_cut_sum(r_mid,  c_mid) = low_cut_sum(r_mid,  c_mid)  + cut_lo;
-        high_cut_sum(r_mid, c_mid) = high_cut_sum(r_mid, c_mid)  + cut_hi;
-        cut_hit(r_mid, c_mid)      = cut_hit(r_mid, c_mid) + 1;
+    t_wall = tic;
+    if opt.Verbose
+        fprintf('%s  Processing %d blocks in batches...\n', pfx, n_blks);
     end
 
-    % Pixel-wise average (keep only real part — blood reconstructions are real)
-    filtered_Data = real(accumulator ./ repmat(max(hit_count,1), 1, 1, T));
+    % --- Determine batch size ---
+    % Each block result is blk_z*blk_x*T*8 bytes (double).
+    % Limit batch memory to ~500 MB to stay safe.
+    bytes_per_block = blk_z * blk_x * T * 8;
+    max_batch_mem   = 500e6;  % 500 MB
+    batch_size      = max(1, min(n_blks, floor(max_batch_mem / bytes_per_block)));
+    n_batches       = ceil(n_blks / batch_size);
+    if opt.Verbose
+        fprintf('%s  Batch size: %d blocks  (%d batches, ~%.0f MB/batch)\n', ...
+            pfx, batch_size, n_batches, batch_size * bytes_per_block / 1e6);
+    end
+
+    for batch = 1:n_batches
+        b_lo = (batch - 1) * batch_size + 1;
+        b_hi = min(batch * batch_size, n_blks);
+        b_count = b_hi - b_lo + 1;
+
+        % --- Pre-slice blocks for this batch (avoids rawData broadcast) ---
+        batch_blocks = cell(b_count, 1);
+        batch_coords = zeros(b_count, 4, 'int32');  % [r1, r2, c1, c2]
+        for k = 1:b_count
+            b_idx = b_lo + k - 1;
+            r1 = block_list(b_idx, 1);
+            c1 = block_list(b_idx, 2);
+            r2 = r1 + blk_z - 1;
+            c2 = c1 + blk_x - 1;
+            batch_blocks{k} = rawData(r1:r2, c1:c2, :);
+            batch_coords(k,:) = [r1, r2, c1, c2];
+        end
+
+        % --- parfor over this batch only ---
+        batch_blood  = cell(b_count, 1);
+        batch_cutoffs = zeros(b_count, 2);  % [cut_lo, cut_hi]
+
+        parfor k = 1:b_count
+            block_data = batch_blocks{k};
+            casorati = reshape(block_data, blk_z * blk_x, T);
+
+            [U, S_mat, V] = svd(casorati, 'econ');
+            S_vec = diag(S_mat);
+            K     = numel(S_vec);
+
+            switch upper(par_method)
+                case 'DOPPLERGRADIENT'
+                    [cut_lo, cut_hi] = blk_DopplerGradient( ...
+                        S_vec, V, par_fr, par_freq_thr, par_mp_sigma, ...
+                        par_grad_pct, par_use_doppler, par_max_tissue, K);
+                case 'SSM'
+                    [cut_lo, cut_hi] = blk_SSM( ...
+                        U, S_vec, V, par_fr, par_mp_sigma, par_max_tissue, K);
+                case 'HYBRID'
+                    [cut_lo, ~]      = blk_SSM( ...
+                        U, S_vec, V, par_fr, par_mp_sigma, par_max_tissue, K);
+                    [~,      cut_hi] = blk_DopplerGradient( ...
+                        S_vec, V, par_fr, par_freq_thr, par_mp_sigma, ...
+                        par_grad_pct, par_use_doppler, par_max_tissue, K);
+                case 'MANUAL'
+                    cut_lo = par_manual(1);
+                    cut_hi = par_manual(2);
+                otherwise
+                    cut_lo = max(1, round(0.10 * K));
+                    cut_hi = round(0.80 * K);
+            end
+
+            cut_lo = max(1,  min(cut_lo, K - par_min_blood));
+            cut_hi = min(K,  max(cut_hi, cut_lo + par_min_blood - 1));
+
+            idx          = cut_lo : cut_hi;
+            blood_matrix = U(:, idx) * S_mat(idx, idx) * V(:, idx)';
+            batch_blood{k}    = reshape(blood_matrix, blk_z, blk_x, T);
+            batch_cutoffs(k,:) = [cut_lo, cut_hi];
+        end  % parfor
+
+        % --- Accumulate this batch immediately, then free memory ---
+        for k = 1:b_count
+            r1 = double(batch_coords(k,1));  r2 = double(batch_coords(k,2));
+            c1 = double(batch_coords(k,3));  c2 = double(batch_coords(k,4));
+            cut_lo = batch_cutoffs(k,1);
+            cut_hi = batch_cutoffs(k,2);
+
+            accumulator(r1:r2, c1:c2, :) = accumulator(r1:r2, c1:c2, :) + batch_blood{k};
+            hit_count(r1:r2, c1:c2)      = hit_count(r1:r2, c1:c2) + 1;
+
+            r_mid = round((r1 + r2) / 2);
+            c_mid = round((c1 + c2) / 2);
+            low_cut_sum(r_mid,  c_mid) = low_cut_sum(r_mid,  c_mid)  + cut_lo;
+            high_cut_sum(r_mid, c_mid) = high_cut_sum(r_mid, c_mid)  + cut_hi;
+            cut_hit(r_mid, c_mid)      = cut_hit(r_mid, c_mid) + 1;
+        end
+
+        % Free batch memory
+        clear batch_blocks batch_blood;
+
+        if mod(batch, max(1, round(n_batches/10))) == 0 || batch == n_batches
+            if opt.Verbose
+                fprintf('%s    Batch %d/%d done (%.1f s elapsed)\n', ...
+                    pfx, batch, n_batches, toc(t_wall));
+            end
+        end
+    end  % batch loop
+
+    % =========================================================================
+    % 9. NORMALIZE ACCUMULATOR (Eq. 1 in the paper)
+    % =========================================================================
+    % Use frame-by-frame division to avoid creating a full [H x W x T] temp
+    hc = max(hit_count, 1);
+    for t = 1:T
+        accumulator(:,:,t) = accumulator(:,:,t) ./ hc;
+    end
+    filtered_Data = real(accumulator);
+    clear accumulator;  % free immediately
 
     elapsed = toc(t_wall);
-    fprintf('%s  Total time: %.1f s  (%.1f blocks/s)\n', ...
-        pfx, elapsed, n_blks / elapsed);
+    if opt.Verbose
+        fprintf('%s  Total time: %.1f s  (%.1f blocks/s)\n', ...
+            pfx, elapsed, n_blks / elapsed);
+    end
 
     % =========================================================================
     % 10. DIAGNOSTICS
@@ -421,15 +477,26 @@ function [filtered_Data, diagnostics] = SVD_blockwise(rawData, params_or_framera
     low_sparse(cut_hit == 0)  = NaN;
     high_sparse(cut_hit == 0) = NaN;
 
-    [zz, xx] = ndgrid(1:H, 1:W);
-    has_data  = ~isnan(low_sparse);
+    has_data = ~isnan(low_sparse);
     if any(has_data(:))
-        low_full  = griddata(xx(has_data), zz(has_data), ...
-                        low_sparse(has_data),  xx, zz, 'linear');
-        high_full = griddata(xx(has_data), zz(has_data), ...
-                        high_sparse(has_data), xx, zz, 'linear');
-        fill_lo   = median(low_sparse(:), 'omitnan');
-        fill_hi   = median(high_sparse(:), 'omitnan');
+        [zz, xx] = ndgrid(1:H, 1:W);
+        fill_lo  = median(low_sparse(:), 'omitnan');
+        fill_hi  = median(high_sparse(:), 'omitnan');
+
+        try
+            F_lo = scatteredInterpolant( ...
+                double(xx(has_data)), double(zz(has_data)), ...
+                low_sparse(has_data), 'linear', 'nearest');
+            F_hi = scatteredInterpolant( ...
+                double(xx(has_data)), double(zz(has_data)), ...
+                high_sparse(has_data), 'linear', 'nearest');
+            low_full  = F_lo(xx, zz);
+            high_full = F_hi(xx, zz);
+        catch
+            % Fallback: fill with median values
+            low_full  = ones(H, W) * fill_lo;
+            high_full = ones(H, W) * fill_hi;
+        end
         low_full(isnan(low_full))   = fill_lo;
         high_full(isnan(high_full)) = fill_hi;
     else
@@ -516,7 +583,7 @@ function [cut_lo, cut_hi] = blk_SSM(U, S_vec, V, framerate, ...
         mp_sigma, max_tissue_frac, K)
     try
         SSM = corr(abs(U));                          % [K x K] Pearson corr
-        [blo, bhi] = SVD_SSM_AutoTh(SSM);
+        [blo, bhi] = SVD_SSM_AutoTh(SSM, 'display', 0);
         cut_lo = min(blo, bhi);
         cut_hi = max(blo, bhi);
         cut_lo = max(1, min(cut_lo, round(max_tissue_frac * K)));
@@ -572,7 +639,7 @@ function cut_hi = mp_high_cutoff(S_vec, V, framerate, cut_lo, mp_sigma, K)
     nstd    = std(log_sv - fitted) + eps;
 
     % --- Step 3: last component above the noise linear fit by mp_sigma ---
-    sr   = cut_lo : pre_cut;
+    sr   = (cut_lo : pre_cut)';
     res  = log(S_vec(sr) + eps) - polyval(poly_c, sr);
     dev  = find(res > mp_sigma * nstd);
 

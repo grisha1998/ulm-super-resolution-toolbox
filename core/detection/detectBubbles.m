@@ -45,6 +45,13 @@ function candidateBubbles = detectBubbles(filteredData, locParams, roiMask)
     % Pre-allocate a cell array to store results from each frame
     frame_results = cell(T, 1);
     
+    if isfield(locParams, 'h_contrast') && ~isempty(locParams.h_contrast)
+        h_contrast = max(0, double(locParams.h_contrast));
+    else
+        h_contrast = 0;
+    end
+    use_hmaxima = (h_contrast > 0);
+
     % Process each frame in parallel to speed up detection
     parfor t = 1:T
         frame = filteredData(:,:,t);
@@ -67,9 +74,13 @@ function candidateBubbles = detectBubbles(filteredData, locParams, roiMask)
         sigma_z = locParams.fwhm(2) / 2.355;
         frame_detect = imgaussfilt(frame_norm, [sigma_z, sigma_x]);
 
-        % Find regional maxima on the smoothed frame (scale-aware peak locations),
-        % but threshold on the ORIGINAL frame_norm (accurate intensities).
-        regional_maxima = imregionalmax(frame_detect, 8);
+        % Find regional maxima on the smoothed frame.
+        % Utilizes h-maxima transform to resolve closely spaced peaks if configured.
+        if use_hmaxima
+            regional_maxima = imextendedmax(frame_detect, h_contrast);
+        else
+            regional_maxima = imregionalmax(frame_detect, 8);
+        end
         thresholded_peaks = regional_maxima & (frame_norm > locParams.detection_threshold);
         
         % Get the linear indices, coordinates, and intensity of the detected peaks

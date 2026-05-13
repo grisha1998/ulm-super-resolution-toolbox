@@ -5,7 +5,7 @@ classdef SessionManager < handle
     % including data, parameters, and UI state for later restoration.
     
     properties
-        version = '2.0';
+        version = '3.0';
         lastSaveFile = '';
     end
     
@@ -307,6 +307,113 @@ classdef SessionManager < handle
                 warning('Could not read session info: %s', ME.message);
                 info = struct('error', ME.message);
             end
+        end
+
+        function session = createSession(obj, data, params)
+            % V3 wrapper: packs data + params into a pseudo-app struct,
+            % delegates to the existing createSessionData, and returns
+            % a flat session struct (no nested 'sessionData' key).
+            fakeApp = struct();
+            fakeApp.data   = data;
+            fakeApp.data.params = params;
+ 
+            % Build a minimal ui/state stub so createSessionData won't crash
+            % on fields it optionally reads.
+            fakeApp.ui    = struct();
+            fakeApp.state = struct();
+            if isfield(data, 'params'), fakeApp.data.params = data.params; end
+ 
+            % Copy state fields that createSessionData expects
+            stateFields = {'currentState','currentFrame','maxFrame'};
+            for i = 1:numel(stateFields)
+                if isfield(data, stateFields{i})
+                    fakeApp.state.(stateFields{i}) = data.(stateFields{i});
+                end
+            end
+ 
+            % We need a figure handle check — supply a dummy
+            fakeApp.fig = gobjects(0);
+ 
+            % --- Build the session directly (simplified) ---
+            session = struct();
+            session.version   = obj.version;
+            session.timestamp = datetime('now');
+            session.params    = params;
+ 
+            % Serialize data fields
+            session.data = struct();
+            dataFields = {'rawData','rawDataHash','mask','candidateBubbles', ...
+                          'localizations','tracks_raw','tracks_final', ...
+                          'filteredData','U','S_diag','V','svdDims', ...
+                          'tissue_indices','blood_indices','noise_indices', ...
+                          'blockwiseDiag','vesselMap','baseVesselMap', ...
+                          'rawClim','filteredClim','filteredMeanBG','MeanBG'};
+            for i = 1:numel(dataFields)
+                f = dataFields{i};
+                if isfield(data, f) && ~isempty(data.(f))
+                    session.data.(f) = data.(f);
+                end
+            end
+ 
+            % State
+            session.state = struct();
+            if isfield(data, 'currentState'), session.state.currentState = data.currentState;
+            else,                             session.state.currentState = -1; end
+            if isfield(data, 'currentFrame'), session.state.currentFrame = data.currentFrame;
+            else,                             session.state.currentFrame = 1; end
+            if isfield(data, 'maxFrame'),     session.state.maxFrame = data.maxFrame;
+            else
+                if isfield(data, 'rawData') && ~isempty(data.rawData)
+                    session.state.maxFrame = size(data.rawData, 3);
+                else
+                    session.state.maxFrame = 1;
+                end
+            end
+ 
+            fprintf('Session snapshot created (v3 wrapper).\n');
+        end
+ 
+        function [data, params] = restoreSession(obj, session)
+            % V3 wrapper: unpacks a session struct into separate data and
+            % params outputs, matching the v3 calling convention:
+            %   [app.data, app.data.params] = sessionManager.restoreSession(session)
+ 
+            fprintf('Restoring session (v3 wrapper)...\n');
+ 
+            % Version check
+            if isfield(session, 'version') && ~strcmp(session.version, obj.version)
+                warning('Session version mismatch: file=%s, current=%s', ...
+                    session.version, obj.version);
+            end
+ 
+            % Params
+            if isfield(session, 'params')
+                params = session.params;
+            else
+                params = struct();
+            end
+ 
+            % Data
+            data = struct();
+            if isfield(session, 'data')
+                flds = fieldnames(session.data);
+                for i = 1:numel(flds)
+                    data.(flds{i}) = session.data.(flds{i});
+                end
+            end
+ 
+            % Restore state fields onto data so the GUI can pick them up
+            if isfield(session, 'state')
+                sf = fieldnames(session.state);
+                for i = 1:numel(sf)
+                    data.(sf{i}) = session.state.(sf{i});
+                end
+            end
+ 
+            % Attach params into data (v3 expects data.params)
+            data.params = params;
+ 
+            fprintf('Session restored (v3 wrapper).\n');
         end
     end
 end

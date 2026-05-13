@@ -74,7 +74,7 @@ function filtered_Data = SVD_SSM(rawData, options)
     SSM = corr(abs(U)); %
 
     % --- Step 3: Call the core thresholding function with the calculated SSM ---
-    [bloodLowTh, bloodHighTh] = SVD_SSM_AutoTh(SSM);
+    [bloodLowTh, bloodHighTh] = SVD_SSM_AutoTh(SSM, 'display', 2);
 
     % --- Step 4: Classify all components based on the two thresholds ---
     % Ensure thresholds are sorted correctly for comparison

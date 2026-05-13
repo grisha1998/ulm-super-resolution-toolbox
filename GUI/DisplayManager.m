@@ -12,9 +12,8 @@ classdef DisplayManager < handle
     
     methods
         function obj = DisplayManager()
-            % Constructor
             obj.lastDisplayTime = 0;
-            obj.trackColormap   = lines(256);
+            obj.trackColormap   = lines(ULM_Constants.TRACK_COLORMAP_SIZE);
         end
         
         function displayFrame(obj, app)
@@ -215,26 +214,18 @@ classdef DisplayManager < handle
         
         function displayROIPreview(obj, app)
             % Display ROI selection preview with vessel map and mask overlay
-            
-            % 1. Display vessel map
+
             imagesc(app.ui.ax, app.data.vesselMap);
-            obj.applyAxesDisplaySettings(app); % Apply CLim & Colormap only
-            
-            % 2. Red semi-transparent overlay for mask
-            if ~isempty(app.data.mask)
-                % Pre-compute red overlay template if needed
-                if isempty(app.data.redOverlayTemplate) || ...
-                   ~isequal(size(app.data.redOverlayTemplate(:,:,1)), size(app.data.mask))
-                    app.data.redOverlayTemplate = cat(3, ...
-                        ones(size(app.data.mask)), ...
-                        zeros(size(app.data.mask)), ...
-                        zeros(size(app.data.mask)));
-                end
-                
+            obj.applyAxesDisplaySettings(app);
+
+            % Semi-transparent red overlay for the active mask region.
+            % redOverlayTemplate is pre-computed in prepareROITab to avoid
+            % rebuilding it on every frame.
+            if ~isempty(app.data.mask) && ~isempty(app.data.redOverlayTemplate)
                 hOv = image(app.ui.ax, app.data.redOverlayTemplate);
                 set(hOv, 'AlphaData', double(app.data.mask) * 0.3);
             end
-            
+
             title(app.ui.ax, 'ROI Selection: Average Intensity (Vessel Map)');
         end
         
@@ -246,27 +237,31 @@ classdef DisplayManager < handle
             end
         end
         
-        function debouncedDisplay(obj, app, delay)
-            % Debounced display update to prevent excessive redraws
-            %
-            % Args:
-            %   app: Application structure
-            %   delay: Debounce delay in seconds (default: from constants)
+        function debouncedDisplay(obj, fig, delay)
+            % Debounced display update to prevent excessive redraws.
+            % Accepts the figure handle (not app) so the timer always
+            % reads the latest state via guidata when it fires.
             
             if nargin < 3
                 delay = ULM_Constants.DEBOUNCE_DELAY;
             end
             
-            % Stop existing timer
             if ~isempty(obj.debounceTimer) && isvalid(obj.debounceTimer)
                 stop(obj.debounceTimer);
                 delete(obj.debounceTimer);
             end
             
-            % Create new timer
             obj.debounceTimer = timer('StartDelay', delay, ...
-                'TimerFcn', @(~,~) obj.displayFrame(app));
+                'TimerFcn', @(~,~) obj.debouncedRefresh(fig));
             start(obj.debounceTimer);
+        end
+        
+        function debouncedRefresh(obj, fig)
+            if ~isvalid(fig), return; end
+            app = guidata(fig);
+            if ~isempty(app)
+                obj.displayFrame(app);
+            end
         end
 
         function img = processImageForDisplay(obj, app, rawImg)
@@ -313,7 +308,7 @@ classdef DisplayManager < handle
                 clim(app.ui.ax, 'auto');
             end
         end
-        
+
         function cleanup(obj)
             % Clean up resources
             if ~isempty(obj.debounceTimer) && isvalid(obj.debounceTimer)

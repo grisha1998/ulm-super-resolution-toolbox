@@ -1,4 +1,4 @@
-function mask = generateVesselMask(filteredData, params)
+function [mask, enhancedMap] = generateVesselMask(filteredData, params)
 % =========================================================================
 % FUNCTION: generateVesselMask
 % =========================================================================
@@ -27,6 +27,7 @@ function mask = generateVesselMask(filteredData, params)
 %
 % SYNTAX OPTIONS:
 %   mask = generateVesselMask(filteredData, params)
+%   [mask, enhancedMap] = generateVesselMask(filteredData, params)
 %
 % EXAMPLES:
 %   % Generate mask using CLAHE enhancement:
@@ -36,6 +37,13 @@ function mask = generateVesselMask(filteredData, params)
 %   vesselParams.threshold = 0.15;
 %   roiMask = generateVesselMask(filteredData, vesselParams);
 %
+%   % Get only the enhanced image for display (no thresholding):
+%   dispParams.method = 'Top-Hat (Vesselness)';
+%   dispParams.strength = 0.5;
+%   dispParams.gamma = 1.0;
+%   dispParams.threshold = 0;
+%   [~, enhImg] = generateVesselMask(meanFrame, dispParams);
+%
 % INPUTS:
 %   filteredData - (Type: 3D Numeric Matrix) Clutter-suppressed ultrasound sequence.
 %   params       - (Type: Struct) Contains enhancement parameters:
@@ -43,6 +51,10 @@ function mask = generateVesselMask(filteredData, params)
 %
 % OUTPUTS:
 %   mask         - (Type: 2D Logical Matrix [H x W]) Binary map defining valid vessel regions.
+%   enhancedMap  - (Type: 2D Double Matrix [H x W], optional) The continuous enhanced
+%                  image after all processing steps (enhancement + gamma), before
+%                  thresholding. Normalized to [0, 1]. Useful for vessel visualization
+%                  in the GUI without generating a binary mask.
 %
 % AUTHOR: Grigori Shapiro
 % =========================================================================
@@ -105,6 +117,6 @@ function mask = generateVesselMask(filteredData, params)
     end
     
     % 5. Generate Binary Mask
+    enhancedMap = procImg;
     mask = procImg >= params.threshold;
-
 end

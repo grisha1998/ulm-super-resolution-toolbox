@@ -1,72 +1,155 @@
 function tracks = trackKalman(localizations, params, indent_prefix)
 % =========================================================================
 % FUNCTION: trackKalman
+% AUTHOR:   Grigori Shapiro
 % =========================================================================
 %
 % PURPOSE:
-%   Implements predictive microbubble tracking utilizing a 2D Kalman Filter. 
-%   By maintaining a kinematic state (position and velocity/acceleration) for 
-%   each microbubble, this tracker can accurately predict where a bubble will 
-%   appear in the next frame. This drastically reduces identity-swapping in dense 
-%   regions and smooths out sub-pixel localization jitter.
+%   Implements predictive microbubble tracking using a 2D Kalman Filter,
+%   designed for demanding vascular beds such as the rat kidney. By
+%   maintaining kinematic state (position + velocity, optionally
+%   acceleration) for each microbubble, the tracker predicts where a bubble
+%   will appear in the next frame(s). This reduces identity swaps in dense
+%   regions, smooths sub-pixel localization jitter, and allows bubbles to
+%   be recovered after temporary disappearance at branching points or due
+%   to momentary SNR drops.
 %
-% DETAILED ALGORITHM WORKFLOW:
-%   1. Mask Initialization: Checks for `params.proc.vesselMask`. If present, 
-%      it enables physical boundary constraints.
-%   2. Predict Phase: Every active track's `kalmanFilter` is stepped forward 
-%      (`predict()`) to estimate the [X, Y] position in the current frame.
-%   3. Cost & Assignment: Builds a cost matrix comparing *predicted* track 
-%      locations to *measured* localizations. Solves via Hungarian or NN.
-%   4. Update & Constrain (The Core Logic):
-%      - For assigned links, the Kalman filter is updated (`correct()`) with the 
-%        new measurement.
-%      - Constraint Check: The corrected [X, Y] state is checked against the 
-%        `vesselMask`. If the Kalman filter "drifts" outside the defined vessels, 
-%        the state is overridden and clamped strictly back to the raw measurement 
-%        coordinate to prevent track divergence.
-%   5. Track Path Storage: The newly corrected (smoothed) state is saved to 
-%      `.correctedPath`. This path is used for all downstream velocity mapping.
-%   6. Two-Step Track Initiation: To prevent noise spikes from starting fake tracks, 
-%      a new track is ONLY created if an unassigned localization in frame `T` can 
-%      be successfully linked to an unassigned localization in frame `T-1`.
-%   7. Track Management & Finalization: Gap closing logic is applied. Dead tracks 
-%      are evaluated, velocities are calculated in mm/s using physical parameters, 
-%      and mask-safety checks are performed globally.
+% KEY DESIGN PRINCIPLES:
+%   - Velocity-bootstrapped initiation: New tracks require two consecutive
+%     detections (two-step initiation). The initial velocity is computed
+%     from the loc1->loc2 displacement, giving the filter a physically
+%     meaningful first prediction instead of defaulting to zero velocity.
+%   - Frame-synchronous prediction: The main loop iterates over real frame
+%     numbers (min_frame:max_frame) rather than frame indices. This ensures
+%     predict() is called exactly once per physical frame, correctly
+%     handling empty frames without desynchronizing the filter's time.
+%   - Anisotropic measurement noise: Separate variances for lateral (X)
+%     and axial (Z) dimensions, reflecting the inherent resolution
+%     asymmetry of ultrasound imaging.
+%   - Adaptive process noise: Q is dynamically scaled by recent track
+%     speed, accommodating the wide velocity range of kidney vasculature
+%     (arcuate arteries ~20 mm/s down to peritubular capillaries <1 mm/s).
+%   - Mask-tolerant validation: Tracks are rejected only when a configurable
+%     fraction of their path falls outside the vessel mask, rather than
+%     discarding entire tracks for single boundary-edge points.
+%   - Gap interpolation: Predicted positions during gap frames are stored
+%     separately and can be merged into a dense output path for density-map
+%     rendering without contaminating velocity calculations.
 %
-% INPUT PARAMETERS & VARIABLES:
-%   localizations - (Table) 'Frame', 'X', 'Y' columns.
-%   params        - (Struct) Tracking configuration:
-%                   .track.kalman.motion_model (String): 'ConstantVelocity' (4-state) 
-%                         or 'ConstantAcceleration' (6-state).
-%                   .track.kalman.process_noise (double): Covariance Q; defines how 
-%                         much the velocity/acceleration is allowed to change.
-%                   .track.kalman.assignment_method (String): 'hungarian' or 'nn'.
-%                   .loc.fwhm (double array): Used to dynamically set the measurement 
-%                         noise (R) of the Kalman filter based on bubble size.
-%                   .proc.vesselMask.vesselMask (Logical Matrix): Spatial constraint.
+% ALGORITHM WORKFLOW:
+%   1. Mask Initialization — checks params.proc.vesselMask; enables
+%      physical boundary constraints if present.
+%   2. Core Loop (iterates frame numbers min_frame:max_frame):
+%      a. Predict: every active track's filter is stepped forward.
+%      b. Cost & Assignment: cost matrix (from calculateCostMatrix_v2) is
+%         solved via Hungarian or greedy nearest-neighbor.
+%      c. Update: for assigned links, correct() the filter, clamp to mask
+%         if needed, update adaptive process noise.
+%      d. Unassigned track management: store predicted position for gap
+%         interpolation, increment gap counter, terminate if exceeded.
+%      e. Two-step initiation: unassigned detections from consecutive
+%         verified frames spawn new velocity-bootstrapped tracks.
+%   3. Finalization — mask-tolerance validation, path formatting, velocity
+%      computation in mm/s, optional QC.
 %
-% INTERNAL TRACK STATE VARIABLES:
-%   .kalmanFilter              - (trackingKF object) Stores state, covariances, etc.
-%   .correctedPath             - [Nx2 double] The smoothed trajectory output from KF.
-%   .age                       - (Integer) Total lifespan frames.
-%   .consecutiveInvisibleCount - (Integer) Current gap counter.
-%   unassignedLocs_prevFrame   - (Table) Cross-loop variable enabling two-step initiation.
+% INPUT PARAMETERS:
+%   localizations - (Table) Required columns: 'Frame', 'X', 'Y'.
+%                   Optional column: 'Intensity'.
+%   params        - (Struct) Tracking configuration. Relevant fields:
+%     params.track.method                       'Kalman' or 'Kalman_v2'
+%     params.track.max_linking_distance         Base distance gate (pixels)
+%     params.track.max_gap_closing_frames       Max gap frames before termination
+%     params.track.min_track_length             Min corrected frames for valid track
+%     params.track.pixel_X_size, pixel_Z_size   mm/pixel in X and Z
+%     params.track.dt                           Seconds between frames
+%     params.track.use_advanced_cost_matrix     Enable cost matrix penalties
+%     params.track.kalman.motion_model          'ConstantVelocity' | 'ConstantAcceleration'
+%     params.track.kalman.process_noise         Base process noise Q (scalar or matrix)
+%     params.track.kalman.assignment_method     'hungarian' | 'nn'
+%     params.track.kalman.process_noise_velocity_scale Adaptive Q scaling (0=off).
+%                                                      Q_eff = Q * (1 + scale * speed).
+%     params.track.kalman.mask_tolerance_fraction      Max outside-mask path fraction
+%     params.track.kalman.interpolate_gaps             Include gap predictions in output
+%     params.track.kalman.min_track_length_velocity    Min length for reliable velocity
+%     params.track.kalman.gating_max_angle_change_deg  Hard angle gate (degrees)
+%     params.track.kalman.max_angle_change_deg         Soft angle threshold (degrees)
+%     params.track.kalman.angle_penalty_slope          Angle penalty ramp slope
+%     params.track.kalman.direction_penalty_weight     Direction penalty weight
+%     params.track.kalman.brightness_penalty_weight    Brightness penalty weight
+%     params.loc.fwhm                           PSF FWHM [lateral, axial] (pixels)
+%     params.proc.vesselMask                    (optional) vessel boundary mask
 %
-% FINAL OUTPUT STRUCTURE (tracks array):
-%   Matches trackHungarian, but critically, `.path` is populated using the 
-%   smoothed `.correctedPath` to ensure high-fidelity super-resolution rendering.
+% INTERNAL TRACK STATE:
+%   .kalmanFilter              - (trackingKF) Kalman filter handle
+%   .correctedPath             - [Nx2] Kalman-smoothed trajectory
+%   .predictedPath_gap         - [Mx2] predicted positions during gap frames
+%   .predictedFrames_gap       - [Mx1] frame numbers for gap predictions
+%   .localizations             - (table) raw measurements assigned to track
+%   .age                       - count of corrected (measured) frames
+%   .lastFrame                 - last frame with a corrected measurement
+%   .consecutiveInvisibleCount - current gap frame counter
+%   .meanBrightness            - incrementally maintained mean intensity
+%
+% OUTPUT:
+%   tracks - Struct array. Each track contains:
+%     .id                       Integer ID
+%     .path                     [Nx2] Kalman-smoothed trajectory (age rows)
+%     .path_interpolated        [Kx2] dense path including gap predictions
+%     .frames                   Frame numbers of corrected positions
+%     .frames_interpolated      Frame numbers including gap frames
+%     .length                   Number of corrected frames (= age)
+%     .localizations            Raw localization table
+%     .velocities_mm_s          Per-step velocity in mm/s
+%     .average_velocity_mm_s    Mean velocity (scalar broadcast to length)
+%     .has_reliable_velocity    true if track meets min length for velocity
 %
 % DEPENDENCIES:
-%   - Sensor Fusion and Tracking Toolbox (`trackingKF`, `predict`, `correct`)
-%
-% AUTHOR: Grigori Shapiro
+%   - Sensor Fusion and Tracking Toolbox (trackingKF, predict, correct)
+%   - munkres.m on path (for Hungarian assignment)
+%   - calculateCostMatrix_v2.m (companion cost matrix function)
+%   - Optional: applyQualityControl.m
 % =========================================================================
-    
-    % --- 1. Initialization and Pre-checks ---
-    if nargin < 3, indent_prefix = ''; end 
-    
-    % Setup Mask for Boundary Constraints
+
+    % --- Argument defaults ---
+    if nargin < 3, indent_prefix = ''; end
+
+    if isempty(localizations)
+        tracks = [];
+        return;
+    end
+
+    if ~license('test', 'Sensor_Fusion_and_Tracking')
+        error('The Kalman tracker requires the Sensor Fusion and Tracking Toolbox.');
+    end
+
+    % --- Run the core tracking pass ---
+    terminatedTracks = runTrackingPass(localizations, params, indent_prefix);
+
+    % --- Validation & Formatting ---
+    terminatedTracks = validateTracks(terminatedTracks, params);
+    tracks           = formatTracks(terminatedTracks, params, indent_prefix);
+
+    % --- Summary ---
+    printTrackingSummary(tracks, localizations, indent_prefix);
+end
+
+%% ========================================================================
+%  CORE TRACKING LOOP
+% =========================================================================
+
+function terminatedTracks = runTrackingPass(localizations, params, indent_prefix)
+% RUNTRACKINGPASS  Executes the main temporal tracking loop.
+%
+%   Iterates over every physical frame in the dataset (including empty
+%   frames). For each frame: predicts all active tracks, computes the
+%   assignment cost matrix, solves the assignment, updates matched tracks,
+%   manages unmatched tracks (gap counting, termination), and initiates
+%   new tracks from consecutive unassigned detections.
+
+    % --- Mask setup ---
     use_vessel_mask = false;
+    vesselMask = [];
+    maskH = 0; maskW = 0;
     if isfield(params, 'proc') && isfield(params.proc, 'vesselMask') && ...
             isfield(params.proc.vesselMask, 'enable') && params.proc.vesselMask.enable && ...
             isfield(params.proc.vesselMask, 'vesselMask') && ~isempty(params.proc.vesselMask.vesselMask)
@@ -75,467 +158,609 @@ function tracks = trackKalman(localizations, params, indent_prefix)
         [maskH, maskW] = size(vesselMask);
     end
 
-    if isempty(localizations)
-        tracks = [];
-        return;
-    end
-    
-    if ~license('test', 'Sensor_Fusion_and_Tracking')
-        error('The "kalman" tracking method requires the Sensor Fusion and Tracking Toolbox.');
-    end
-
-    locsByFrame = splitapply(@(varargin) {table(varargin{:}, 'VariableNames', localizations.Properties.VariableNames)},...
-        localizations, findgroups(localizations.Frame));
-    numFrames = length(locsByFrame);
-
-    activeTracks = {};
-    terminatedTracks = {};
-    nextTrackID = 1;
-    
-    % Get the assignment method from params ---
-    if isfield(params.track.kalman, 'assignment_method')
-        assignment_method = lower(params.track.kalman.assignment_method);
+    % --- State-vector indices for the active motion model ---
+    if strcmpi(params.track.kalman.motion_model, 'ConstantAcceleration')
+        idx_x = 1; idx_vx = 2;   % State: [x; vx; ax; y; vy; ay]
+        idx_y = 4; idx_vy = 5;
     else
-        assignment_method = 'hungarian'; % Default to Hungarian
+        idx_x = 1; idx_vx = 2;   % State: [x; vx; y; vy]
+        idx_y = 3; idx_vy = 4;
     end
 
-    fprintf('%sStarting standard Kalman tracking...\n', indent_prefix);
-    
-    % === Initialize a table to store unassigned localizations from the previous frame ===
-    unassignedLocs_prevFrame = table();
+    activeTracks       = {};
+    terminatedTracks   = {};
+    nextTrackID        = 1;
+    assignment_method  = lower(params.track.kalman.assignment_method);
 
-    % --- 2. Main Tracking Loop ---
-    for t = 1:numFrames
-        currentLocs = locsByFrame{t};
-        
-        % --- PREDICTION STEP ---
+    fprintf('%s  Kalman v2 tracking pass...\n', indent_prefix);
+
+    % --- Build a frame-number -> localization-table lookup ---
+    % This allows iterating over the full frame range (including empty
+    % frames) so that predict() is called exactly once per physical frame.
+    all_frames = unique(localizations.Frame);
+    min_frame  = min(all_frames);
+    max_frame  = max(all_frames);
+
+    [G, frame_ids] = findgroups(localizations.Frame);
+    locsByFrameMap = containers.Map('KeyType', 'double', 'ValueType', 'any');
+    for g = 1:max(G)
+        locsByFrameMap(frame_ids(g)) = localizations(G == g, :);
+    end
+
+    % --- Two-step initiation state ---
+    % Tracks the previous frame's unassigned detections and frame number
+    % to enforce frame continuity (consecutive frames only).
+    unassignedLocs_prevFrame = table();
+    prevFrameNumber          = -Inf;
+
+    % --- Main temporal loop ---
+    for currentFrame = min_frame:max_frame
+
+        % Retrieve current frame's localizations (may be empty)
+        if isKey(locsByFrameMap, currentFrame)
+            currentLocs = locsByFrameMap(currentFrame);
+        else
+            currentLocs = [];
+        end
+
+        % === PREDICT =========================================================
+        % Step every active track's Kalman filter forward by one time step.
         numActiveTracks = length(activeTracks);
         if numActiveTracks > 0
-            % Optimized state extraction and prediction
-            cellfun(@(track) predict(track.kalmanFilter), activeTracks);
+            cellfun(@(track) predict(track.kalmanFilter), activeTracks, 'UniformOutput', false);
         end
-        
-        % --- ASSIGNMENT STEP ---
-        unassignedDetections = true(height(currentLocs), 1);
-        if ~isempty(activeTracks) && ~isempty(currentLocs)
+
+        % === ASSIGN ==========================================================
+        % Build cost matrix and solve the assignment problem.
+        hasLocs        = ~isempty(currentLocs) && height(currentLocs) > 0;
+        if hasLocs
+            unassignedDet = true(height(currentLocs), 1);
+        else
+            unassignedDet = false(0, 1);
+        end
+        assignedTracks = false(numActiveTracks, 1);
+
+        if numActiveTracks > 0 && hasLocs
             costMatrix = calculateCostMatrix(activeTracks, currentLocs, params);
 
             switch assignment_method
                 case 'hungarian'
-                    if exist('munkres', 'file')
-                        [assignments, ~] = munkres(costMatrix);
-                    else
-                        error('Hungarian algorithm implementation (e.g., ''munkres'') not found on MATLAB path.');
+                    if ~exist('munkres', 'file')
+                        error('Hungarian algorithm (munkres) not found on MATLAB path.');
                     end
-                    
+                    [assignments, ~] = munkres(costMatrix);
                 case 'nn'
-                    % Use the greedy nearest neighbor assignment
                     max_link_dist_sq = params.track.max_linking_distance^2;
                     assignments = greedyNN_assign(costMatrix, max_link_dist_sq);
-                    
                 otherwise
-                    error('Unknown assignment method: %s. Use ''hungarian'' or ''nn''.', params.track.kalman.assignment_method);
+                    error('Unknown assignment method: %s', assignment_method);
             end
 
-            % --- UPDATE STEP ---
-            assignedTracks = false(numActiveTracks, 1);
-            currentPositions = [currentLocs.X, currentLocs.Y]; % Get positions for correction
+            % === UPDATE ======================================================
+            % For each assigned track-detection pair: correct the Kalman
+            % filter, enforce mask constraints, update track state.
+            currentPositions = [currentLocs.X, currentLocs.Y];
             for i = 1:numActiveTracks
                 if assignments(i) > 0
                     detectionIdx = assignments(i);
-                    
-                    % 1. Correct the filter (This is good)
-                    correct(activeTracks{i}.kalmanFilter, currentPositions(detectionIdx, :));
-                    
-                    % 2. Extract the corrected state (This is the solution)
-                    corrected_state = activeTracks{i}.kalmanFilter.State;
-                    
-                    % 3. Extract the [x, y] position and apply Mask Constraint
-                    if strcmpi(params.track.kalman.motion_model, 'ConstantAcceleration')
-                         state_idx_x = 1; state_idx_y = 4;
-                    else % ConstantVelocity
-                         state_idx_x = 1; state_idx_y = 3;
-                    end
-                    
-                    corrected_pos = [corrected_state(state_idx_x), corrected_state(state_idx_y)];
 
-                    % --- CONSTRAINT CHECK ---
+                    % Correct the Kalman filter with the new measurement
+                    correct(activeTracks{i}.kalmanFilter, currentPositions(detectionIdx, :));
+
+                    % Extract the corrected (smoothed) position
+                    s = activeTracks{i}.kalmanFilter.State;
+                    corrected_pos = [s(idx_x), s(idx_y)];
+
+                    % Enforce vessel mask boundary constraint: if the
+                    % corrected position drifts outside the mask, snap
+                    % it back to the raw measurement position.
                     if use_vessel_mask
-                        % Convert continuous position to grid indices
-                        cx = round(corrected_pos(1));
-                        cy = round(corrected_pos(2));
-                        
-                        % Check boundaries
-                        is_outside = (cx < 1 || cx > maskW || cy < 1 || cy > maskH);
-                        
-                        % If inside bounds, check the specific mask pixel
-                        if ~is_outside && ~vesselMask(cy, cx)
-                            is_outside = true;
-                        end
-                        
-                        if is_outside
-                            % VIOLATION DETECTED: Force position back to the raw localization
-                            raw_loc = [currentLocs.X(detectionIdx), currentLocs.Y(detectionIdx)];
-                            corrected_pos = raw_loc;
-                            
-                            % CRITICAL: Update the Kalman Filter state to stop it from "drifting"
-                            % If we don't do this, the filter will keep predicting further outside next time.
-                            activeTracks{i}.kalmanFilter.State(state_idx_x) = corrected_pos(1);
-                            activeTracks{i}.kalmanFilter.State(state_idx_y) = corrected_pos(2);
+                        [corrected_pos, was_clamped] = applyMaskConstraint( ...
+                            corrected_pos, currentPositions(detectionIdx, :), vesselMask, maskH, maskW);
+                        if was_clamped
+                            activeTracks{i}.kalmanFilter.State(idx_x) = corrected_pos(1);
+                            activeTracks{i}.kalmanFilter.State(idx_y) = corrected_pos(2);
                         end
                     end
-                    
-                    % 4. Store the corrected position in a *new* field
+
+                    % Append to the Kalman-smoothed trajectory
                     activeTracks{i}.correctedPath = [activeTracks{i}.correctedPath; corrected_pos];
-                    
-                    % 5. Store the raw localization (still good practice)
-                    activeTracks{i}.localizations = [activeTracks{i}.localizations; currentLocs(detectionIdx,:)];
-                    
-                    activeTracks{i}.age = activeTracks{i}.age + 1;
-                    activeTracks{i}.lastFrame = t;
+                    activeTracks{i}.localizations = [activeTracks{i}.localizations; currentLocs(detectionIdx, :)];
+                    activeTracks{i}.age                       = activeTracks{i}.age + 1;
+                    activeTracks{i}.lastFrame                 = currentFrame;
                     activeTracks{i}.consecutiveInvisibleCount = 0;
-                    
-                    unassignedDetections(detectionIdx) = false;
-                    assignedTracks(i) = true;
+
+                    % Incrementally update mean brightness (avoids
+                    % recomputing over the full history each frame)
+                    if ismember('Intensity', activeTracks{i}.localizations.Properties.VariableNames)
+                        n = activeTracks{i}.age;
+                        new_I = currentLocs.Intensity(detectionIdx);
+                        activeTracks{i}.meanBrightness = ...
+                            ((n-1) * activeTracks{i}.meanBrightness + new_I) / n;
+                    end
+
+                    % Adaptive process noise: scale Q by recent track speed
+                    % so fast tracks can turn more freely while slow tracks
+                    % remain tightly smoothed. Disabled when scale = 0.
+                    if params.track.kalman.process_noise_velocity_scale > 0
+                        activeTracks{i}.kalmanFilter = updateAdaptiveProcessNoise(...
+                            activeTracks{i}.kalmanFilter, activeTracks{i}.correctedPath, params);
+                    end
+
+                    unassignedDet(detectionIdx) = false;
+                    assignedTracks(i)           = true;
                 end
             end
-        else
-            assignedTracks = false(numActiveTracks, 1);
         end
 
-        % --- 4. Track Management ---
-        % Handle tracks that were not assigned (gap closing or termination)
-        for i = numActiveTracks:-1:1
+        % === HANDLE UNASSIGNED TRACKS (gap management) =======================
+        % For unassigned tracks: increment their gap counter and store the
+        % predicted position for optional gap interpolation in the output.
+        for i = 1:numActiveTracks
             if ~assignedTracks(i)
                 activeTracks{i}.consecutiveInvisibleCount = activeTracks{i}.consecutiveInvisibleCount + 1;
-                if activeTracks{i}.consecutiveInvisibleCount > params.track.max_gap_closing_frames
-                    terminatedTracks{end+1} = activeTracks{i};
-                    activeTracks(i) = [];
-                end
+
+                % Store predicted position during this gap frame
+                s = activeTracks{i}.kalmanFilter.State;
+                pred_pos = [s(idx_x), s(idx_y)];
+                activeTracks{i}.predictedPath_gap   = [activeTracks{i}.predictedPath_gap;   pred_pos];
+                activeTracks{i}.predictedFrames_gap = [activeTracks{i}.predictedFrames_gap; currentFrame];
             end
         end
-        
-        % === Two-Step Track Initiation Logic ===
-        
-        % 1. Get all localizations from the current frame that were not assigned to any active track.
-        unassignedLocs_currentFrame = currentLocs(unassignedDetections, :);
-        
-        % 2. Try to link current unassigned locs with unassigned locs from the PREVIOUS frame.
-        if ~isempty(unassignedLocs_currentFrame) && ~isempty(unassignedLocs_prevFrame)
+
+        % === TERMINATION =====================================================
+        % Tracks exceeding max_gap_closing_frames are terminated.
+        to_remove = false(1, numActiveTracks);
+        max_gap   = params.track.max_gap_closing_frames;
+
+        for i = 1:numActiveTracks
+            if activeTracks{i}.consecutiveInvisibleCount > max_gap
+                terminatedTracks{end+1} = activeTracks{i}; %#ok<AGROW>
+                to_remove(i) = true;
+            end
+        end
+        activeTracks(to_remove) = [];
+
+        % === TWO-STEP INITIATION =============================================
+        % New tracks are only created when an unassigned detection in the
+        % current frame can be linked to an unassigned detection in the
+        % immediately preceding frame (frame continuity enforced). The
+        % initial velocity is bootstrapped from the displacement between
+        % the two detections, giving the Kalman filter a physically
+        % meaningful first prediction.
+        if hasLocs
+            unassignedLocs_currentFrame = currentLocs(unassignedDet, :);
+        else
+            unassignedLocs_currentFrame = table();
+        end
+
+        frame_delta  = currentFrame - prevFrameNumber;
+        can_initiate = (frame_delta == 1) && ...
+                       ~isempty(unassignedLocs_currentFrame) && ...
+                       ~isempty(unassignedLocs_prevFrame);
+
+        if can_initiate
             costMatrix_init = pdist2([unassignedLocs_prevFrame.X, unassignedLocs_prevFrame.Y], ...
-                                      [unassignedLocs_currentFrame.X, unassignedLocs_currentFrame.Y], 'squaredeuclidean');
-            
-            init_dist_gate_sq = (params.track.max_linking_distance * 1.5)^2;
-            costMatrix_init(costMatrix_init > init_dist_gate_sq) = Inf;
-            
-            [assignments_init, ~] = munkres(costMatrix_init);
-            
-            used_current_locs_mask = false(height(unassignedLocs_currentFrame), 1);
-            
-            % 3. Create new tracks ONLY from valid two-frame links.
+                                     [unassignedLocs_currentFrame.X, unassignedLocs_currentFrame.Y], ...
+                                     'squaredeuclidean');
+            init_gate_sq = (params.track.max_linking_distance * 1.5)^2;
+            costMatrix_init(costMatrix_init > init_gate_sq) = Inf;
+
+            % Use the same assignment method as the main tracking loop
+            switch assignment_method
+                case 'nn'
+                    assignments_init = greedyNN_assign(costMatrix_init, init_gate_sq);
+                otherwise
+                    [assignments_init, ~] = munkres(costMatrix_init);
+            end
+
+            used_current = false(height(unassignedLocs_currentFrame), 1);
+
             for i = 1:length(assignments_init)
                 if assignments_init(i) > 0
                     detectionIdx = assignments_init(i);
-                    
                     loc1 = unassignedLocs_prevFrame(i, :);
                     loc2 = unassignedLocs_currentFrame(detectionIdx, :);
-                    
-                    % Initialize filter with the first point
-                    kf = initializeKalmanFilter(loc1, params);
-                    initial_state = kf.State; % Get state for point 1
-                    
-                    % Immediately correct it with the second point
-                    correct(kf, [loc2.X, loc2.Y]);
-                    corrected_state_2 = kf.State; % Get corrected state for point 2
-                    
-                    % Extract positions
-                    if strcmpi(params.track.kalman.motion_model, 'ConstantAcceleration')
-                         state_idx_x = 1; state_idx_y = 4;
-                    else % ConstantVelocity
-                         state_idx_x = 1; state_idx_y = 3;
-                    end
-                    
-                    pos1 = [initial_state(state_idx_x), initial_state(state_idx_y)];
-                    pos2 = [corrected_state_2(state_idx_x), corrected_state_2(state_idx_y)];
 
-                    % Apply Mask Constraint to the Second Point (pos2)
+                    % Initialize a Kalman filter at loc1's position with
+                    % anisotropic measurement noise
+                    kf = initializeKalmanFilter(loc1, params);
+
+                    % Bootstrap velocity from the loc1->loc2 displacement.
+                    % Without this, the filter starts at vx=vy=0 and
+                    % correct() alone cannot infer velocity from a single
+                    % position measurement.
+                    vx = loc2.X - loc1.X;
+                    vy = loc2.Y - loc1.Y;
+                    kf.State(idx_vx) = vx;
+                    kf.State(idx_vy) = vy;
+
+                    % Advance filter one step and correct with loc2
+                    predict(kf);
+                    correct(kf, [loc2.X, loc2.Y]);
+                    s = kf.State;
+
+                    pos1 = [loc1.X, loc1.Y];
+                    pos2 = [s(idx_x), s(idx_y)];
+
+                    % Apply mask constraint to the corrected position
                     if use_vessel_mask
-                        cx = round(pos2(1));
-                        cy = round(pos2(2));
-                        
-                        is_outside = (cx < 1 || cx > maskW || cy < 1 || cy > maskH);
-                        
-                        if ~is_outside && ~vesselMask(cy, cx)
-                            is_outside = true;
-                        end
-                        
-                        if is_outside
-                            % Force pos2 back to the raw localization loc2
-                            pos2 = [loc2.X, loc2.Y];
-                            
-                            % Update the filter state so it doesn't start with a bad state
-                            kf.State(state_idx_x) = pos2(1);
-                            kf.State(state_idx_y) = pos2(2);
+                        [pos2, was_clamped] = applyMaskConstraint( ...
+                            pos2, [loc2.X, loc2.Y], vesselMask, maskH, maskW);
+                        if was_clamped
+                            kf.State(idx_x) = pos2(1);
+                            kf.State(idx_y) = pos2(2);
                         end
                     end
-                    
-                    newTrack.id = nextTrackID; nextTrackID = nextTrackID + 1;
-                    newTrack.kalmanFilter = kf;
-                    newTrack.localizations = [loc1; loc2]; % Store raw data
-                    newTrack.correctedPath = [pos1; pos2];
-                    newTrack.age = 2;
-                    newTrack.lastFrame = t;
-                    newTrack.consecutiveInvisibleCount = 0;
-                    activeTracks{end+1} = newTrack;
-                    
-                    used_current_locs_mask(detectionIdx) = true;
+
+                    % Create the new track structure
+                    newTrack = createNewTrack(nextTrackID, kf, loc1, loc2, pos1, pos2, currentFrame);
+                    nextTrackID = nextTrackID + 1;
+                    activeTracks{end+1} = newTrack; %#ok<AGROW>
+
+                    used_current(detectionIdx) = true;
                 end
             end
-            
-            % 4. Update the list of unassigned locs for the next frame.
-            unassignedLocs_prevFrame = unassignedLocs_currentFrame(~used_current_locs_mask, :);
-            
+
+            unassignedLocs_prevFrame = unassignedLocs_currentFrame(~used_current, :);
         else
+            % Previous frame was not immediately prior — reset to current
             unassignedLocs_prevFrame = unassignedLocs_currentFrame;
         end
 
+        prevFrameNumber = currentFrame;
     end
 
-    % --- 5. Finalization ---
+    % Append any tracks still active at the end of the sequence
     terminatedTracks = [terminatedTracks, activeTracks];
-    
-    terminatedTracks = validate_Tracks(terminatedTracks, params);
-    tracks = formatTracks(terminatedTracks, params, indent_prefix); 
-    
-    fprintf('%sStandard Kalman tracking complete. Found %d valid tracks after QC.\n', indent_prefix, length(tracks));
+end
 
-    total_initial_locs = height(localizations);
-    if ~isempty(tracks)
-        total_locs_in_tracks = sum([tracks.length]);
+%% ========================================================================
+%  KALMAN FILTER INITIALIZATION & HELPERS
+% =========================================================================
+
+function kf = initializeKalmanFilter(loc, params)
+% INITIALIZEKALMANFILTER  Creates a new trackingKF with anisotropic
+%   measurement noise reflecting the different lateral (X) vs axial (Z)
+%   resolution of ultrasound imaging.
+%
+%   The measurement noise R is derived from the PSF FWHM: sigma = 0.5*FWHM.
+%   When FWHM is a 2-element vector [lateral, axial], R is diagonal with
+%   separate variances per axis. When scalar, R is isotropic.
+
+    kalmanParams = params.track.kalman;
+    motionModel  = kalmanParams.motion_model;
+
+    if strcmpi(motionModel, 'ConstantAcceleration')
+        initialState = [loc.X; 0; 0; loc.Y; 0; 0];
+        kf = trackingKF('MotionModel', '2D Constant Acceleration', 'State', initialState);
     else
-        total_locs_in_tracks = 0;
+        initialState = [loc.X; 0; loc.Y; 0];
+        kf = trackingKF('MotionModel', '2D Constant Velocity', 'State', initialState);
     end
-    untracked_locs = total_initial_locs - total_locs_in_tracks;
-    
-    fprintf('%s  - Total localizations in tracks: %d\n', indent_prefix, total_locs_in_tracks);
-    if total_initial_locs > 0
-        untracked_percent = 100 * untracked_locs / total_initial_locs;
-        fprintf('%s  - Un-tracked localizations: %d (%.1f%% of total)\n', indent_prefix, untracked_locs, untracked_percent);
+
+    kf.ProcessNoise = kalmanParams.process_noise;
+
+    % Anisotropic measurement noise from PSF FWHM
+    fwhm = params.loc.fwhm;
+    if numel(fwhm) == 1
+        sigma_x = 0.5 * fwhm;
+        sigma_z = 0.5 * fwhm;
     else
-        fprintf('%s  - Un-tracked localizations: 0\n', indent_prefix);
+        sigma_x = 0.5 * fwhm(1);
+        sigma_z = 0.5 * fwhm(2);
+    end
+    kf.MeasurementNoise = diag([sigma_x^2, sigma_z^2]);
+end
+
+function kf = updateAdaptiveProcessNoise(kf, correctedPath, params)
+% UPDATEADAPTIVEPROCESSNOISE  Scales ProcessNoise by recent inter-frame
+%   displacement so that fast tracks can accelerate/turn more freely while
+%   slow tracks remain tightly smoothed. This accommodates the wide dynamic
+%   velocity range encountered in kidney vasculature.
+%
+%   Formula: Q_effective = Q_base * (1 + scale * recent_speed)
+
+    if size(correctedPath, 1) < 2
+        return;
+    end
+
+    recent_velocity = norm(correctedPath(end, :) - correctedPath(end-1, :));
+    base_Q = params.track.kalman.process_noise;
+    scale  = params.track.kalman.process_noise_velocity_scale;
+
+    try
+        kf.ProcessNoise = base_Q * (1 + scale * recent_velocity);
+    catch
+        % Graceful fallback if base_Q dimensionality is incompatible
+    end
+end
+
+function [corrected_pos, was_clamped] = applyMaskConstraint(corrected_pos, raw_pos, vesselMask, maskH, maskW)
+% APPLYMASKCONSTRAINT  Enforces vessel boundary constraints.
+%   If the Kalman-corrected position falls outside the vessel mask (either
+%   out of image bounds or on a non-vessel pixel), it is snapped back to
+%   the raw measurement position to prevent track divergence at vessel
+%   boundaries.
+
+    cx = round(corrected_pos(1));
+    cy = round(corrected_pos(2));
+
+    is_outside = (cx < 1 || cx > maskW || cy < 1 || cy > maskH);
+    if ~is_outside && ~vesselMask(cy, cx)
+        is_outside = true;
+    end
+
+    was_clamped = false;
+    if is_outside
+        corrected_pos = raw_pos;
+        was_clamped   = true;
+    end
+end
+
+function newTrack = createNewTrack(id, kf, loc1, loc2, pos1, pos2, currentFrame)
+% CREATENEWTRACK  Assembles a new track structure from two initial
+%   detections and a velocity-bootstrapped Kalman filter.
+
+    newTrack = struct();
+    newTrack.id                        = id;
+    newTrack.kalmanFilter              = kf;
+    newTrack.localizations             = [loc1; loc2];
+    newTrack.correctedPath             = [pos1; pos2];
+    newTrack.predictedPath_gap         = zeros(0, 2);
+    newTrack.predictedFrames_gap       = zeros(0, 1);
+    newTrack.age                       = 2;
+    newTrack.lastFrame                 = currentFrame;
+    newTrack.consecutiveInvisibleCount = 0;
+    if ismember('Intensity', newTrack.localizations.Properties.VariableNames)
+        newTrack.meanBrightness = mean(newTrack.localizations.Intensity, 'omitnan');
+    else
+        newTrack.meanBrightness = NaN;
     end
 end
 
 %% ========================================================================
-%  Local Helper Functions
+%  ASSIGNMENT HELPERS
 % =========================================================================
 
-function kf = initializeKalmanFilter(loc, params)
-    % This function configures and initializes a new Kalman filter for a new track.
-    
-    kalmanParams = params.track.kalman;
-    motionModel = kalmanParams.motion_model;
-    
-    % Set up the filter based on the chosen motion model.
-    if strcmpi(motionModel, 'ConstantAcceleration')
-        % State is [x; vx; ax; y; vy; ay]
-        initialState = [loc.X; 0; 0; loc.Y; 0; 0];
-        kf = trackingKF('MotionModel', '2D Constant Acceleration', 'State', initialState);
-        kf.ProcessNoise = kalmanParams.process_noise;
-    else % Default to 'ConstantVelocity'
-        % State is [x; vx; y; vy]
-        initialState = [loc.X; 0; loc.Y; 0];
-        kf = trackingKF('MotionModel', '2D Constant Velocity', 'State', initialState);
-        kf.ProcessNoise = kalmanParams.process_noise;
-    end
-    
-    localization_uncertainty_pixels = 0.5 * mean(params.loc.fwhm);
-    measurement_noise_variance = localization_uncertainty_pixels^2;
-    kf.MeasurementNoise = eye(2) * measurement_noise_variance;
-end
-
-
-function finalTracks = formatTracks(terminatedTracks, params, indent_prefix)
-    % This helper function converts raw track objects into the final output structure,
-    % calculates velocities in mm/s, and filters by length.
-    
-    % Extract the tracking-specific parameters.
-    trackParams = params.track;
-    min_track_length = trackParams.min_track_length;
-    
-    % Pre-allocate a cell array for temporary storage for performance.
-    tempTracksCell = cell(1, length(terminatedTracks));
-    track_count = 0;
-    
-    for i = 1:length(terminatedTracks)
-        track = terminatedTracks{i};
-        if track.age >= min_track_length
-            track_count = track_count + 1;
-            
-            % Store basic track info
-            outTrack = struct();
-            outTrack.id = track.id;
-            outTrack.localizations = track.localizations; % Store raw data
-            
-            % Build the path from the CORRECTED states, not the raw localizations
-            if isfield(track, 'correctedPath') && ~isempty(track.correctedPath)
-                outTrack.path = track.correctedPath;
-                % Ensure path length matches age, in case of logic error
-                if size(outTrack.path, 1) ~= track.age
-                     fprintf('Warning: Track %d path/age mismatch. Using localizations as fallback.\n', track.id);
-                     outTrack.path = [track.localizations.X, track.localizations.Y];
-                end
-            else
-                 fprintf('Warning: Track %d missing correctedPath. Using localizations as fallback.\n', track.id);
-                 outTrack.path = [track.localizations.X, track.localizations.Y];
-            end
-            
-            outTrack.frames = track.localizations.Frame;
-            outTrack.length = track.age;
-
-            % --- Velocity Calculation (in mm/s) ---
-            % This calculation will now use the SMOOTHED path
-            if track.age > 1
-                dx_pixels = diff(outTrack.path(:,1));
-                dy_pixels = diff(outTrack.path(:,2));
-                dt_frames = diff(outTrack.frames);
-
-                displacement_mm = sqrt((dx_pixels * trackParams.pixel_X_size).^2 + (dy_pixels * trackParams.pixel_Z_size).^2);
-                dt_sec = dt_frames * trackParams.dt;
-
-                velocities_mm_s = zeros(size(dt_sec));
-                valid_dt = dt_sec > 0;
-                velocities_mm_s(valid_dt) = displacement_mm(valid_dt) ./ dt_sec(valid_dt);
-                outTrack.velocities_mm_s = [velocities_mm_s; velocities_mm_s(end)];
-                
-                mean_vel = mean(velocities_mm_s(isfinite(velocities_mm_s)), 'omitnan');
-                if isempty(mean_vel) || isnan(mean_vel), mean_vel = 0; end
-                outTrack.average_velocity_mm_s = repmat(mean_vel, track.age, 1);
-            else
-                outTrack.velocities_mm_s = 0;
-                outTrack.average_velocity_mm_s = 0;
-            end
-            tempTracksCell{track_count} = outTrack;
-        end
-    end
-
-    % Convert the cell array to a structure array, removing empty cells.
-    initial_filtered_tracks = [tempTracksCell{1:track_count}];
-
-    finalTracks = applyQualityControl(initial_filtered_tracks, trackParams, indent_prefix);
-end
-
 function assignments = greedyNN_assign(costMatrix, max_cost)
-    % Solves the assignment problem using a "best-first" greedy algorithm.
-    [numActiveTracks, numDetections] = size(costMatrix);
-    assignments = zeros(numActiveTracks, 1);
-    if numDetections == 0, return; end
-    
-    availableDetections = true(1, numDetections);
-    
-    % Find all costs below the gate
-    valid_links = costMatrix <= max_cost;
-    [trackIndices_all, detIndices_all] = find(valid_links);
-    
-    if isempty(trackIndices_all), return; end % No valid links found
-    
-    % Get the linear indices of these valid links to find their costs
-    linear_indices = sub2ind(size(costMatrix), trackIndices_all, detIndices_all);
-    costs_all = costMatrix(linear_indices);
-    
-    % Sort them from best (lowest cost) to worst
-    [~, sortedOrder] = sort(costs_all, 'ascend');
-    
-    trackIndices = trackIndices_all(sortedOrder);
-    detIndices = detIndices_all(sortedOrder);
-    
-    % Iterate through the sorted list
-    for i = 1:length(trackIndices)
-        trackIdx = trackIndices(i);
-        detIdx = detIndices(i);
-        
-        % If this track is not yet assigned AND this detection is not yet taken
-        if assignments(trackIdx) == 0 && availableDetections(detIdx)
-            assignments(trackIdx) = detIdx;
-            availableDetections(detIdx) = false; % This detection is now taken
+% GREEDYNN_ASSIGN  Greedy nearest-neighbor assignment.
+%   Finds the globally best (lowest-cost) valid link, assigns it, then
+%   removes both the track and detection from the pool. Repeats until no
+%   valid links remain. Faster than Hungarian for sparse cost matrices.
+
+    [numTracks, numDet] = size(costMatrix);
+    assignments = zeros(numTracks, 1);
+    if numDet == 0, return; end
+
+    availableDet = true(1, numDet);
+
+    valid_links = costMatrix <= max_cost & isfinite(costMatrix);
+    [trackIdx_all, detIdx_all] = find(valid_links);
+    if isempty(trackIdx_all), return; end
+
+    lin = sub2ind(size(costMatrix), trackIdx_all, detIdx_all);
+    costs_all = costMatrix(lin);
+    [~, order] = sort(costs_all, 'ascend');
+
+    trackIdx = trackIdx_all(order);
+    detIdx   = detIdx_all(order);
+
+    for i = 1:length(trackIdx)
+        tI = trackIdx(i);
+        dI = detIdx(i);
+        if assignments(tI) == 0 && availableDet(dI)
+            assignments(tI) = dI;
+            availableDet(dI) = false;
         end
     end
 end
 
-function validTracks = validate_Tracks(tracks, params)
-    % Removes ENTIRE tracks if they contain points outside the active masks.
-    
+%% ========================================================================
+%  TRACK VALIDATION & FORMATTING
+% =========================================================================
+
+function validTracks = validateTracks(tracks, params)
+% VALIDATETRACKS  Removes tracks where more than mask_tolerance_fraction of
+%   the smoothed path falls outside the combined vessel/ROI mask.
+%
+%   This tolerance-based approach prevents losing valid tracks that have
+%   a few Kalman-corrected points drifting slightly past vessel boundaries,
+%   which is common at sharp mask edges.
+
     if isempty(tracks)
         validTracks = tracks;
         return;
     end
 
-    % --- 1. Combine Masks (Updated to use 'params' not 'obj') ---
     H = params.expParams.size(1);
     W = params.expParams.size(2);
-    combinedMask = true(H, W); 
-    maskActive = false;
+    combinedMask = true(H, W);
+    maskActive   = false;
 
-    % A. Check Vessel Mask
     if isfield(params, 'proc') && isfield(params.proc, 'vesselMask') && ...
        isfield(params.proc.vesselMask, 'enable') && params.proc.vesselMask.enable && ...
        isfield(params.proc.vesselMask, 'vesselMask') && ~isempty(params.proc.vesselMask.vesselMask)
-   
         combinedMask = combinedMask & logical(params.proc.vesselMask.vesselMask);
-        maskActive = true;
+        maskActive   = true;
     end
 
-    % B. Check Interactive ROI Mask
-    % Note: In trackKalman, metadata might not be fully available in params, 
-    % but if you passed it, this works. Usually, for tracking, we rely on vesselMask.
     if isfield(params, 'metadata') && isfield(params.metadata, 'roiMask') && ~isempty(params.metadata.roiMask)
         combinedMask = combinedMask & logical(params.metadata.roiMask);
-        maskActive = true;
+        maskActive   = true;
     end
-    
+
     if ~maskActive
         validTracks = tracks;
         return;
     end
 
-    % --- 2. Iterate Backwards to Filter Tracks ---
-    % We loop backwards because we are deleting elements from the array
+    tolerance = params.track.kalman.mask_tolerance_fraction;
     tracks_to_remove = false(1, length(tracks));
-    
+
     for i = 1:length(tracks)
         currTrack = tracks{i};
-        
-        % Determine which path to check (Corrected or Raw)
+
         if isfield(currTrack, 'correctedPath') && ~isempty(currTrack.correctedPath)
             pts = currTrack.correctedPath;
         else
             pts = [currTrack.localizations.X, currTrack.localizations.Y];
         end
-        
+
         x_idx = round(pts(:, 1));
         y_idx = round(pts(:, 2));
-        
-        % Check bounds
-        in_bounds = (x_idx >= 1 & x_idx <= W & y_idx >= 1 & y_idx <= H);
-        
-        % If any point is out of image bounds, mark for removal
-        if any(~in_bounds)
-            tracks_to_remove(i) = true;
-            continue;
+
+        in_bounds   = (x_idx >= 1 & x_idx <= W & y_idx >= 1 & y_idx <= H);
+        outside_any = ~in_bounds;
+
+        if any(in_bounds)
+            ib = find(in_bounds);
+            lin_idx = sub2ind([H, W], y_idx(ib), x_idx(ib));
+            outside_any(ib(~combinedMask(lin_idx))) = true;
         end
-        
-        % Check mask
-        indices = sub2ind([H, W], y_idx, x_idx);
-        if any(~combinedMask(indices))
+
+        outside_frac = sum(outside_any) / length(outside_any);
+        if outside_frac > tolerance
             tracks_to_remove(i) = true;
         end
     end
 
-    % --- 3. Remove Invalid Tracks ---
     validTracks = tracks(~tracks_to_remove);
-    
-    num_removed = sum(tracks_to_remove);
-    if num_removed > 0
-        fprintf('      -> Mask Safety Check: Removed %d tracks that drifted outside the mask.\n', num_removed);
+
+    n_removed = sum(tracks_to_remove);
+    if n_removed > 0
+        fprintf('      -> Mask validation: Removed %d tracks (>%.0f%% outside mask).\n', ...
+            n_removed, 100 * tolerance);
+    end
+end
+
+function finalTracks = formatTracks(terminatedTracks, params, indent_prefix)
+% FORMATTRACKS  Converts raw track structs to the final output format.
+%   Computes velocities in mm/s from the Kalman-smoothed path, builds
+%   interpolated (gap-filled) paths for density rendering, and optionally
+%   delegates to applyQualityControl for additional filtering.
+%
+%   Tracks shorter than min_track_length_velocity receive zeroed velocity
+%   fields and are flagged with has_reliable_velocity = false. They still
+%   contribute to density maps but are excluded from velocity maps.
+
+    trackParams              = params.track;
+    min_track_length         = trackParams.min_track_length;
+    min_track_length_velocity = trackParams.kalman.min_track_length_velocity;
+
+    tempTracksCell = cell(1, length(terminatedTracks));
+    track_count    = 0;
+
+    for i = 1:length(terminatedTracks)
+        track = terminatedTracks{i};
+        if track.age < min_track_length
+            continue;
+        end
+
+        track_count = track_count + 1;
+        outTrack = struct();
+        outTrack.id            = track.id;
+        outTrack.localizations = track.localizations;
+
+        % Enforce strict consistency between correctedPath and age
+        if isfield(track, 'correctedPath') && ~isempty(track.correctedPath)
+            assert(size(track.correctedPath, 1) == track.age, ...
+                ['Track %d: correctedPath length (%d) != age (%d). ', ...
+                 'This indicates a logic error in the tracking loop.'], ...
+                track.id, size(track.correctedPath, 1), track.age);
+            outTrack.path = track.correctedPath;
+        else
+            outTrack.path = [track.localizations.X, track.localizations.Y];
+        end
+
+        outTrack.frames = track.localizations.Frame;
+        outTrack.length = track.age;
+
+        % Build the dense, gap-filled path for density rendering.
+        % Gap positions come from Kalman predictions during invisible
+        % frames and are stored separately from the corrected path.
+        if trackParams.kalman.interpolate_gaps && ...
+           isfield(track, 'predictedPath_gap') && ~isempty(track.predictedPath_gap)
+            [outTrack.path_interpolated, outTrack.frames_interpolated] = ...
+                buildInterpolatedPath(outTrack.path, outTrack.frames, ...
+                                      track.predictedPath_gap, track.predictedFrames_gap);
+        else
+            outTrack.path_interpolated   = outTrack.path;
+            outTrack.frames_interpolated = outTrack.frames;
+        end
+
+        % --- Velocity computation (mm/s) on the corrected path ---
+        if track.age >= min_track_length_velocity && track.age > 1
+            dx = diff(outTrack.path(:, 1));
+            dy = diff(outTrack.path(:, 2));
+            dt_frames = diff(outTrack.frames);
+
+            disp_mm = sqrt((dx * trackParams.pixel_X_size).^2 + (dy * trackParams.pixel_Z_size).^2);
+            dt_sec  = dt_frames * trackParams.dt;
+
+            v = zeros(size(dt_sec));
+            valid = dt_sec > 0;
+            v(valid) = disp_mm(valid) ./ dt_sec(valid);
+            outTrack.velocities_mm_s = [v; v(end)];
+
+            mean_v = mean(v(isfinite(v)), 'omitnan');
+            if isempty(mean_v) || isnan(mean_v), mean_v = 0; end
+            outTrack.average_velocity_mm_s = repmat(mean_v, track.age, 1);
+            outTrack.has_reliable_velocity = true;
+        else
+            % Track is too short for a reliable velocity estimate
+            outTrack.velocities_mm_s       = zeros(track.age, 1);
+            outTrack.average_velocity_mm_s = zeros(track.age, 1);
+            outTrack.has_reliable_velocity = false;
+        end
+
+        tempTracksCell{track_count} = outTrack;
+    end
+
+    initial_filtered_tracks = [tempTracksCell{1:track_count}];
+
+    if exist('applyQualityControl', 'file')
+        finalTracks = applyQualityControl(initial_filtered_tracks, trackParams, indent_prefix);
+    else
+        finalTracks = initial_filtered_tracks;
+    end
+end
+
+function [interpPath, interpFrames] = buildInterpolatedPath(corrPath, corrFrames, gapPath, gapFrames)
+% BUILDINTERPOLATEDPATH  Combines corrected and gap-predicted positions
+%   into a single chronologically sorted dense path. Useful for density-map
+%   rendering where gaps would otherwise create holes.
+
+    all_frames = [corrFrames(:); gapFrames(:)];
+    all_pts    = [corrPath;      gapPath];
+    [interpFrames, order] = sort(all_frames);
+    interpPath            = all_pts(order, :);
+end
+
+%% ========================================================================
+%  SUMMARY OUTPUT
+% =========================================================================
+
+function printTrackingSummary(tracks, localizations, indent_prefix)
+% PRINTTRACKINGSUMMARY  Prints post-tracking statistics to the console.
+
+    fprintf('%sKalman v2 tracking complete. Found %d valid tracks after QC.\n', ...
+        indent_prefix, length(tracks));
+
+    total_initial = height(localizations);
+    if ~isempty(tracks)
+        total_in_tracks = sum([tracks.length]);
+    else
+        total_in_tracks = 0;
+    end
+    untracked = total_initial - total_in_tracks;
+
+    fprintf('%s  - Total localizations in tracks: %d\n', indent_prefix, total_in_tracks);
+    if total_initial > 0
+        pct = 100 * untracked / total_initial;
+        fprintf('%s  - Un-tracked localizations: %d (%.1f%% of total)\n', ...
+            indent_prefix, untracked, pct);
+    else
+        fprintf('%s  - Un-tracked localizations: 0\n', indent_prefix);
     end
 end
