@@ -1,5 +1,5 @@
 # ULM Super-Resolution Toolbox
-### A MATLAB Framework for Ultrasound Localization Microscopy with Micro- and Nanobubbles
+### A MATLAB Framework for Ultrasound Localization Microscopy with Micro - and Nanobubbles
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2020b%2B-blue)](https://www.mathworks.com/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -66,7 +66,7 @@ This repository provides a complete, modular MATLAB toolbox for **Ultrasound Loc
 The toolbox was developed as part of a research programme investigating **sub-micron nanobubbles (NB)** as a novel ULM contrast agent and comparing their hemodynamic performance against standard microbubbles (MB). A central contribution is the development of the **ULM Master GUI**, an interactive optimization platform designed specifically to address the sensitivity demands of nanobubble imaging — agents whose acoustic cross-section is several orders of magnitude weaker than MB and whose signals can be buried in noise and tissue clutter.
 
 The framework supports the complete pipeline from raw IQ ultrasound data to publication-quality super-resolution maps, and has been validated on:
-- In vitro gelatin phantoms (100–500 μm wall-less channels)
+- In vitro gelatin phantoms (100-500 μm wall-less channels)
 - In vivo rat brain data (benchmark dataset)
 - In vivo rat kidney data
 
@@ -86,9 +86,9 @@ ULM overcomes the diffraction limit by treating imaging as a **localization prob
 σ_loc ∝ FWHM / √SNR
 ```
 
-By injecting a dilute suspension of gas-filled contrast agents and imaging at high frame rates (200–1000 Hz), individual agent PSFs are spatially separated in each frame. Their sub-pixel centroids are accumulated over thousands of frames to reconstruct a high-density map of the microvasculature with resolution an order of magnitude beyond the diffraction limit.
+By injecting a dilute suspension of gas-filled contrast agents and imaging at high frame rates (200-1000 Hz), individual agent PSFs are spatially separated in each frame. Their sub-pixel centroids are accumulated over thousands of frames to reconstruct a high-density map of the microvasculature with resolution an order of magnitude beyond the diffraction limit.
 
-**Why nanobubbles?** Standard microbubbles (1–10 μm) are restricted to vessels larger than their own diameter and cannot extravasate. Sub-micron nanobubbles (100–800 nm) can perfuse the finest capillary networks and reach tissues inaccessible to MB. However, their scattering cross-section follows a sixth-power diameter dependence (Rayleigh regime):
+**Why nanobubbles?** Standard microbubbles (1-10 μm) are restricted to vessels larger than their own diameter and cannot extravasate. Sub-micron nanobubbles (100-800 nm) can perfuse the finest capillary networks and reach tissues inaccessible to MB. However, their scattering cross-section follows a sixth-power diameter dependence (Rayleigh regime):
 
 ```
 σ_s ∝ r⁶ / λ⁴
@@ -135,7 +135,7 @@ A 10× reduction in diameter yields a theoretical 60 dB signal reduction — mak
 | Version | Status |
 |---------|--------|
 | R2022a or later | Recommended |
-| R2020b – R2021b | Supported |
+| R2020b - R2021b | Supported |
 | Earlier than R2020b | Not supported |
 
 ### Required Toolboxes
@@ -153,7 +153,7 @@ A 10× reduction in diameter yields a theoretical 60 dB signal reduction — mak
 
 ### Hardware
 - **RAM:** 16 GB minimum; 32 GB+ recommended for in vivo datasets
-- **Storage:** ~1–5 GB per experimental dataset; session files up to 2 GB
+- **Storage:** ~1-5 GB per experimental dataset; session files up to 2 GB
 - **Display:** 1920×1080 minimum (GUI designed for 1600×1000 px)
 
 ### Operating Systems
@@ -363,7 +363,7 @@ user_rendering_method      = 'histogram';    % 'histogram','gaussian'
 
 % --- Key tuning parameters ---
 user_cutoff_svd                 = [4, 450];   % SVD singular value range [low, high]
-user_detection_threshold        = 0.15;       % Bubble detection sensitivity (0–1)
+user_detection_threshold        = 0.15;       % Bubble detection sensitivity (0-1)
 user_max_bubbles_per_frame      = 100;        % Max candidate bubbles per frame
 user_fwhm_pixels                = [3, 3];     % PSF size estimate [x, z] in pixels
                                               % Set to NaN to auto-compute from λ
@@ -489,7 +489,7 @@ An optional **Butterworth bandpass filter** and **spatial convolution filter** (
 
 | Method | File | Key Parameter |
 |--------|------|---------------|
-| `Intensity` | `detectBubbles.m` | Normalized threshold (0–1). Fast and robust — recommended default. |
+| `Intensity` | `detectBubbles.m` | Normalized threshold (0-1). Fast and robust — recommended default. |
 | `NP` | `detectBubbles_NP.m` | Neyman-Pearson false alarm rate α₀ (e.g., 1e-4). Statistically rigorous. |
 | `NCC` | `detectBubbles_NCC.m` | Normalized cross-correlation with a reference PSF template. Threshold = min correlation (e.g., 0.7). PSF can be Gaussian (analytical) or Experimental (loaded from `.mat`). |
 
@@ -547,7 +547,7 @@ Where:
 <p align="center">
   <img src="docs/figures/Tracking_comparison.jpg" width="820"/>
   <br>
-  <em>Comparative evaluation of ULM tracking algorithms. Velocity maps reconstructed using different tracking methods on a gelatin phantom (NBs, 300/100 μm bifurcation, 0.03 ml/min). Colored ROIs indicate the magnified regions shown in the grid. (b–e) Nearest Neighbor (NN). (f–i) Hungarian Tracking (HT). (j–m) Kalman Tracking (KT). (n–q) Hungarian Tracking with Smart Cost Matrix (HT SC). (r–u) Kalman Tracking with Smart Cost Matrix (KT SC). Note the progressive improvement in flow continuity, laminar profile recovery, and reduction of extra-luminal artifacts.</em>
+  <em>Comparative evaluation of ULM tracking algorithms. Velocity maps reconstructed using different tracking methods on a gelatin phantom (NBs, 300/100 μm bifurcation, 0.03 ml/min). Colored ROIs indicate the magnified regions shown in the grid. (b-e) Nearest Neighbor (NN). (f-i) Hungarian Tracking (HT). (j-m) Kalman Tracking (KT). (n-q) Hungarian Tracking with Smart Cost Matrix (HT SC). (r-u) Kalman Tracking with Smart Cost Matrix (KT SC). Note the progressive improvement in flow continuity, laminar profile recovery, and reduction of extra-luminal artifacts.</em>
 </p>
 
 ---
@@ -688,7 +688,7 @@ Extracts velocity profiles across user-defined ROIs and compares against theoret
 <p align="center">
   <img src="docs/figures/Velocity_profiling.jpg" width="820"/>
   <br>
-  <em>Quantitative velocity profiling of MB versus NB in symmetric (300–300 μm, rows a–h) and asymmetric (300–100 μm, rows i–p) bifurcation phantoms. Solid lines indicate measured ULM velocity profiles: Black = pre-bifurcation, Blue = post-bifurcation main channel, Red = bifurcating branch. Columns correspond to flow rates of 0.01, 0.03, and 0.25 ml/min. Both agents accurately recover the expected parabolic laminar profile across all geometries and flow conditions.</em>
+  <em>Quantitative velocity profiling of MB versus NB in symmetric (300-300 μm, rows a-h) and asymmetric (300-100 μm, rows i-p) bifurcation phantoms. Solid lines indicate measured ULM velocity profiles: Black = pre-bifurcation, Blue = post-bifurcation main channel, Red = bifurcating branch. Columns correspond to flow rates of 0.01, 0.03, and 0.25 ml/min. Both agents accurately recover the expected parabolic laminar profile across all geometries and flow conditions.</em>
 </p>
 
 ### Vascular Partitioning Ratio
@@ -702,7 +702,7 @@ Concentration-independent metric for comparing NB vs MB perfusion efficiency at 
 ## 15. Validation Datasets
 
 ### In Vitro Phantom
-Custom gelatin phantoms with wall-less channel architecture. Channels: 100–500 μm diameter. Acquisition: Verasonics Vantage 256, L22-14vX transducer (18 MHz center frequency), 200–1000 Hz frame rate, 3-angle coherent plane-wave compounding.
+Custom gelatin phantoms with wall-less channel architecture. Channels: 100-500 μm diameter. Acquisition: Verasonics Vantage 256, L22-14vX transducer (18 MHz center frequency), 200-1000 Hz frame rate, 3-angle coherent plane-wave compounding.
 
 ### In Vivo Rat Brain (Benchmark)
 External benchmark dataset provided by Chavignon et al. [Zenodo, 2023]:
@@ -743,19 +743,19 @@ The Hierarchical Kalman Tracker (`trackKalman_Advanced.m`) is based on the metho
 > Taghavi, I. et al. "Ultrasound super-resolution imaging with a hierarchical Kalman tracker." *Ultrasonics*, 122, 106695, 2022. DOI: 10.1016/j.ultras.2022.106695
 
 The SVD-SSM clutter filtering method (`SVD_SSM.m`) is based on:
-> Baranger, J. et al. "Fast Thresholding of SVD Clutter Filter Using the Spatial Similarity Matrix." *IEEE TUFFC*, 70(8), 821–830, 2023. DOI: 10.1109/TUFFC.2023.3289235
+> Baranger, J. et al. "Fast Thresholding of SVD Clutter Filter Using the Spatial Similarity Matrix." *IEEE TUFFC*, 70(8), 821-830, 2023. DOI: 10.1109/TUFFC.2023.3289235
 
 The DCC-SVD method (`DCC_SVD.m`) is based on:
 > Han, X. et al. "An adaptive spatiotemporal filter for ultrasound localization microscopy based on density canopy clustering." *Ultrasonics*, 144, 107446, 2024. DOI: 10.1016/j.ultras.2024.107446
 
 The radial symmetry localization algorithm (`localizeRadialSymmetry.m`) is based on:
-> Parthasarathy, R. "Rapid, accurate particle tracking by calculation of radial symmetry centers." *Nature Methods*, 9(7), 724–726, 2012. DOI: 10.1038/nmeth.2071
+> Parthasarathy, R. "Rapid, accurate particle tracking by calculation of radial symmetry centers." *Nature Methods*, 9(7), 724-726, 2012. DOI: 10.1038/nmeth.2071
 
 The benchmark rat brain dataset used for pipeline validation was provided by:
 > Chavignon, A. et al. "In vivo rat brain for Ultrasound Localization Microscopy: raw and beamformed data." Zenodo, 2023. DOI: 10.5281/zenodo.7883227
 
 The in vitro phantom experiments were performed on phantoms designed in collaboration with:
-> Mano, T., Grutman, T., and Ilovitsh, T. "Versatile Ultrasound-Compatible Microfluidic Platform for In Vitro Microvasculature Flow Research." *ACS Omega*, 8(50), 47667–47677, 2023. DOI: 10.1021/acsomega.3c05849
+> Mano, T., Grutman, T., and Ilovitsh, T. "Versatile Ultrasound-Compatible Microfluidic Platform for In Vitro Microvasculature Flow Research." *ACS Omega*, 8(50), 47667-47677, 2023. DOI: 10.1021/acsomega.3c05849
 
 ---
 
