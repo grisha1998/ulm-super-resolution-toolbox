@@ -25,7 +25,7 @@ If you use this toolbox in your research, please cite:
 **Thesis:**
 > Shapiro, G. "Ultrasound Localization Microscopy with Micro- and Nanobubbles: Processing Framework and Experimental Validation." M.Sc. Thesis, School of Biomedical Engineering, Tel Aviv University, March 2026.
 
-**Journal Article** *(in preparation — citation will be updated upon publication):*
+**Journal Article** *(in preparation - citation will be updated upon publication):*
 > Shapiro, G., et al. "[Title TBD]." *[Journal TBD]*, [Year TBD].
 > DOI: *pending*
 
@@ -41,7 +41,7 @@ If you use this toolbox in your research, please cite:
 6. [Repository Structure](#6-repository-structure)
 7. [Quick Start](#7-quick-start)
 8. [Input Data Format](#8-input-data-format)
-9. [Configuration — setDefaultParams](#9-configuration--setdefaultparams)
+9. [Configuration - setDefaultParams](#9-configuration--setdefaultparams)
 10. [Processing Pipeline](#10-processing-pipeline)
     - [Stage 1: Clutter Filtering](#stage-1-clutter-filtering)
     - [Stage 2: Bubble Detection](#stage-2-bubble-detection)
@@ -61,9 +61,9 @@ If you use this toolbox in your research, please cite:
 
 ## 1. Overview
 
-This repository provides a complete, modular MATLAB toolbox for **Ultrasound Localization Microscopy (ULM)** — a super-resolution imaging technique that resolves microvascular architecture beyond the acoustic diffraction limit by localizing and tracking individual contrast agents (microbubbles or nanobubbles) across thousands of image frames.
+This repository provides a complete, modular MATLAB toolbox for **Ultrasound Localization Microscopy (ULM)** - a super-resolution imaging technique that resolves microvascular architecture beyond the acoustic diffraction limit by localizing and tracking individual contrast agents (microbubbles or nanobubbles) across thousands of image frames.
 
-The toolbox was developed as part of a research programme investigating **sub-micron nanobubbles (NB)** as a novel ULM contrast agent and comparing their hemodynamic performance against standard microbubbles (MB). A central contribution is the development of the **ULM Master GUI**, an interactive optimization platform designed specifically to address the sensitivity demands of nanobubble imaging — agents whose acoustic cross-section is several orders of magnitude weaker than MB and whose signals can be buried in noise and tissue clutter.
+The toolbox was developed as part of a research programme investigating **sub-micron nanobubbles (NB)** as a novel ULM contrast agent and comparing their hemodynamic performance against standard microbubbles (MB). A central contribution is the development of the **ULM Master GUI**, an interactive optimization platform designed specifically to address the sensitivity demands of nanobubble imaging - agents whose acoustic cross-section is several orders of magnitude weaker than MB and whose signals can be buried in noise and tissue clutter.
 
 The framework supports the complete pipeline from raw IQ ultrasound data to publication-quality super-resolution maps, and has been validated on:
 - In vitro gelatin phantoms (100-500 μm wall-less channels)
@@ -94,7 +94,7 @@ By injecting a dilute suspension of gas-filled contrast agents and imaging at hi
 σ_s ∝ r⁶ / λ⁴
 ```
 
-A 10× reduction in diameter yields a theoretical 60 dB signal reduction — making sensitive, adaptively-optimized processing essential for NB-ULM. This toolbox provides that processing infrastructure.
+A 10× reduction in diameter yields a theoretical 60 dB signal reduction - making sensitive, adaptively-optimized processing essential for NB-ULM. This toolbox provides that processing infrastructure.
 
 ---
 
@@ -110,7 +110,7 @@ A 10× reduction in diameter yields a theoretical 60 dB signal reduction — mak
 
 ### Interactive GUI
 - Real-time parameter optimization with instant visual feedback
-- Cached SVD decomposition — slider adjustments are instantaneous after the first run
+- Cached SVD decomposition - slider adjustments are instantaneous after the first run
 - Session save/load for complete workspace reproducibility
 - 20-level undo/redo system
 - Integrated masking and ROI tools with CLAHE, Top-Hat, and Sharpen enhancement
@@ -165,26 +165,26 @@ A 10× reduction in diameter yields a theoretical 60 dB signal reduction — mak
 
 ## 5. Installation
 
-### Step 1 — Clone the Repository
+### Step 1 - Clone the Repository
 ```bash
 git clone https://github.com/YOUR_USERNAME/ulm-super-resolution-toolbox.git
 cd ulm-super-resolution-toolbox
 ```
 
-### Step 2 — Add to MATLAB Path
+### Step 2 - Add to MATLAB Path
 The example scripts handle this automatically. For manual setup:
 ```matlab
 addpath(genpath('/path/to/ulm-super-resolution-toolbox'));
 ```
 
-### Step 3 — Verify Toolboxes
+### Step 3 - Verify Toolboxes
 ```matlab
 ver   % Check installed toolboxes match the requirements above
 ```
 
-### Step 4 — Test the Installation
+### Step 4 - Test the Installation
 ```matlab
-% Launch the GUI — if this opens without errors, installation is complete
+% Launch the GUI - if this opens without errors, installation is complete
 ULM_Master_GUI_v2
 ```
 
@@ -268,7 +268,7 @@ ulm-super-resolution-toolbox/
 
 ## 7. Quick Start
 
-### Option A — Interactive (Recommended for New Datasets)
+### Option A - Interactive (Recommended for New Datasets)
 
 ```matlab
 % 1. Launch the GUI
@@ -281,7 +281,7 @@ ULM_Master_GUI_v2
 
 See [`README_GUI.md`](README_GUI.md) for the complete tab-by-tab guide with all parameters explained.
 
-### Option B — Batch Processing (Phantom / Generic Data)
+### Option B - Batch Processing (Phantom / Generic Data)
 
 ```matlab
 % Edit config/setDefaultParams.m to set your data path and parameters
@@ -289,7 +289,7 @@ See [`README_GUI.md`](README_GUI.md) for the complete tab-by-tab guide with all 
 run_ULM_Analysis
 ```
 
-### Option C — Batch Processing (In Vivo Kidney)
+### Option C - Batch Processing (In Vivo Kidney)
 
 ```matlab
 % Edit config/setDefaultParams.m
@@ -304,9 +304,9 @@ run_ULM_Analysis_Kidney
 ### Raw IQ Data
 - **File type:** `.mat`
 - **Variable:** Any 3D numeric array of shape `[Nz × Nx × Nt]`
-  - `Nz` — axial pixels (image height)
-  - `Nx` — lateral pixels (image width)
-  - `Nt` — number of frames (time)
+  - `Nz` - axial pixels (image height)
+  - `Nx` - lateral pixels (image width)
+  - `Nt` - number of frames (time)
 - The toolbox automatically detects the first 3D numeric array in the `.mat` file regardless of variable name.
 
 ### Metadata File (`info.txt`)
@@ -323,7 +323,7 @@ Each experiment folder must contain an `info.txt` file parsed by `getExpParams.m
 | Frequency | `f = 18 MHz` | Transducer center frequency |
 | Angle | `45 [deg]` | Inflow angle |
 
-If a field is missing, `getExpParams.m` returns `NaN` for that parameter and `setDefaultParams.m` will either auto-compute it or use a safe fallback — see Section 9.
+If a field is missing, `getExpParams.m` returns `NaN` for that parameter and `setDefaultParams.m` will either auto-compute it or use a safe fallback - see Section 9.
 
 ### Folder Organization
 ```
@@ -342,12 +342,12 @@ ExperimentFolder/
 
 ---
 
-## 9. Configuration — setDefaultParams
+## 9. Configuration - setDefaultParams
 
 All experiment parameters are controlled from a single file: `config/setDefaultParams.m`. It is divided into two sections:
 
 ### QUICK EXPERIMENT SETTINGS
-The top section — the only part most users ever need to edit:
+The top section - the only part most users ever need to edit:
 
 ```matlab
 % --- Data path ---
@@ -379,7 +379,7 @@ Parameters set to `NaN` are automatically computed from experiment physics by `c
 | Parameter | Auto-compute Formula | When to Override |
 |-----------|---------------------|-----------------|
 | `max_linking_distance` | `ceil(v_max × dt / pixel_size)` | When auto-estimate is too permissive or restrictive |
-| `fwhm` | `floor(λ / pixel_size) × 2 + 1` | Always recommended — fixed [3,3] is more stable |
+| `fwhm` | `floor(λ / pixel_size) × 2 + 1` | Always recommended - fixed [3,3] is more stable |
 | `channel_cross_section_mm2` | `width × 0.3 mm` (rectangular, fixed height) | Circular channels, non-standard geometry |
 
 ### Parameter Summary Print
@@ -474,7 +474,7 @@ Tissue occupies the first few singular values (high energy, high temporal correl
 
 | Method | File | Description |
 |--------|------|-------------|
-| `svd_filter` | `SVD_filter.m` | Manual cutoff range `[low, high]`. SVD cached after first run — slider adjustments are instant. |
+| `svd_filter` | `SVD_filter.m` | Manual cutoff range `[low, high]`. SVD cached after first run - slider adjustments are instant. |
 | `svd_ssm` | `SVD_SSM.m` | Spatial Similarity Matrix (Baranger et al., 2023). Calculates Pearson correlation between spatial singular vectors to identify tissue/blood boundary objectively. |
 | `dcc_svd` | `DCC_SVD.m` | Density Canopy Clustering (Han et al., 2024). Each component characterized by 3D feature vector; K-means partitions into Tissue / Blood / Noise clusters. |
 | `svd_blockwise` | `SVD_blockwise.m` | Divides image into overlapping spatial blocks and applies independent adaptive thresholding per block. Handles spatially non-uniform clutter. |
@@ -489,7 +489,7 @@ An optional **Butterworth bandpass filter** and **spatial convolution filter** (
 
 | Method | File | Key Parameter |
 |--------|------|---------------|
-| `Intensity` | `detectBubbles.m` | Normalized threshold (0-1). Fast and robust — recommended default. |
+| `Intensity` | `detectBubbles.m` | Normalized threshold (0-1). Fast and robust - recommended default. |
 | `NP` | `detectBubbles_NP.m` | Neyman-Pearson false alarm rate α₀ (e.g., 1e-4). Statistically rigorous. |
 | `NCC` | `detectBubbles_NCC.m` | Normalized cross-correlation with a reference PSF template. Threshold = min correlation (e.g., 0.7). PSF can be Gaussian (analytical) or Experimental (loaded from `.mat`). |
 
@@ -533,8 +533,8 @@ C_total(i,j) = C_dist · (1 + W_slope · P_angle) · (1 + W_int · P_intensity)
 ```
 
 Where:
-- `P_angle = max(0, θᵢⱼ − θ_gate)` — directional deviation penalty
-- `P_intensity = |I_current − Ī_track| / (Ī_track + ε)` — brightness consistency penalty
+- `P_angle = max(0, θᵢⱼ − θ_gate)` - directional deviation penalty
+- `P_intensity = |I_current − Ī_track| / (Ī_track + ε)` - brightness consistency penalty
 
 **Post-tracking QC** (optional, applied to completed trajectories):
 
@@ -581,19 +581,19 @@ The GUI provides an interactive environment for parameter optimization before co
 <p align="center">
   <img src="docs/figures/GUI-1.png" width="780"/>
   <br>
-  <em>GUI Stage 1 — Filter: Raw IQ data loaded and displayed. The control panel shows SVD filter parameters. No processing has been applied yet.</em>
+  <em>GUI Stage 1 - Filter: Raw IQ data loaded and displayed. The control panel shows SVD filter parameters. No processing has been applied yet.</em>
 </p>
 
 <p align="center">
   <img src="docs/figures/GUI-2.png" width="780"/>
   <br>
-  <em>GUI Stage 2 — Detect: An ROI mask has been defined and applied. Candidate microbubbles are detected and overlaid as red crosses on the filtered B-mode image in real time.</em>
+  <em>GUI Stage 2 - Detect: An ROI mask has been defined and applied. Candidate microbubbles are detected and overlaid as red crosses on the filtered B-mode image in real time.</em>
 </p>
 
 <p align="center">
   <img src="docs/figures/GUI-3.png" width="780"/>
   <br>
-  <em>GUI Stage 4 — Track: Kalman tracking with Smart Cost Matrix completed. All reconstructed trajectories are overlaid on the TMIP of the phantom data, visually confirming that tracks follow the vessel geometry through the bifurcation.</em>
+  <em>GUI Stage 4 - Track: Kalman tracking with Smart Cost Matrix completed. All reconstructed trajectories are overlaid on the TMIP of the phantom data, visually confirming that tracks follow the vessel geometry through the bifurcation.</em>
 </p>
 
 ```matlab
@@ -607,7 +607,7 @@ ULM_Master_GUI_v2
 
 ## 12. Batch Scripts
 
-### `run_ULM_Analysis.m` — Standard Pipeline
+### `run_ULM_Analysis.m` - Standard Pipeline
 
 General-purpose script for phantom or non-kidney data. Runs the full pipeline and generates figures for a range of `MIN_TRACK_LENGTH` thresholds.
 
@@ -616,7 +616,7 @@ General-purpose script for phantom or non-kidney data. Runs the full pipeline an
 run_ULM_Analysis
 ```
 
-### `run_ULM_Analysis_Kidney.m` — Full In Vivo Pipeline
+### `run_ULM_Analysis_Kidney.m` - Full In Vivo Pipeline
 
 Extended script with kidney-specific preprocessing. Controlled via a workflow flags struct:
 
@@ -631,11 +631,11 @@ kidney_workflow.apply_roi_mask        = false;  % Apply ROI mask
 
 **In vivo preprocessing stages** (when `run_motion_analysis = true`):
 
-1. **Frame batching** — `split_ImageData_tot_Kidney.m` divides superframes into 1500-frame batches
-2. **Respiratory rejection** — Adaptive inter-frame cross-correlation analysis inspired by Pan-Tompkins. Identifies and removes breathing-contaminated temporal windows.
-3. **Intra-cycle rigid stabilization** — Per-cardiac-cycle rigid registration (Tx, Ty, θ) using non-linear least-squares with warm-start initialization
-4. **Inter-cycle drift correction** — Global alignment to a "master template" selected from the most stable cardiac cycle
-5. **Non-rigid B-spline refinement** — Free-Form Deformation model corrects soft-tissue elastic deformation
+1. **Frame batching** - `split_ImageData_tot_Kidney.m` divides superframes into 1500-frame batches
+2. **Respiratory rejection** - Adaptive inter-frame cross-correlation analysis inspired by Pan-Tompkins. Identifies and removes breathing-contaminated temporal windows.
+3. **Intra-cycle rigid stabilization** - Per-cardiac-cycle rigid registration (Tx, Ty, θ) using non-linear least-squares with warm-start initialization
+4. **Inter-cycle drift correction** - Global alignment to a "master template" selected from the most stable cardiac cycle
+5. **Non-rigid B-spline refinement** - Free-Form Deformation model corrects soft-tissue elastic deformation
 
 ### `Bmode_video.m` / `Kidney_video.m`
 
@@ -713,7 +713,7 @@ External benchmark dataset provided by Chavignon et al. [Zenodo, 2023]:
 <p align="center">
   <img src="docs/figures/In_Vivo_Rat_Brain.jpg" width="820"/>
   <br>
-  <em>Benchmark in vivo data reconstruction validation. (a) Temporal average of raw IQ B-mode data. (b) Temporal average of SVD-filtered data showing isolated but diffraction-limited vascular segments. (c) Super-Resolution Density Map — reconstructed vascular architecture. (d) Dual-Mode Fusion — brightness represents vessel density, color encodes flow velocity (saturated at 30 mm/s). Data: Chavignon et al., Zenodo 2023.</em>
+  <em>Benchmark in vivo data reconstruction validation. (a) Temporal average of raw IQ B-mode data. (b) Temporal average of SVD-filtered data showing isolated but diffraction-limited vascular segments. (c) Super-Resolution Density Map - reconstructed vascular architecture. (d) Dual-Mode Fusion - brightness represents vessel density, color encodes flow velocity (saturated at 30 mm/s). Data: Chavignon et al., Zenodo 2023.</em>
 </p>
 
 ### In Vivo Rat Kidney
@@ -725,13 +725,13 @@ Transcutaneous imaging in a rat model. Rigid mounting on a 3-axis positioning st
 
 | Figure | Script | Notes |
 |--------|--------|-------|
-| Fig. 1 — ULM pipeline overview | `run_ULM_Analysis.m` | Brain benchmark dataset |
-| Fig. 2 — SVD filter optimization | `ULM_Master_GUI_v2` | 300 μm phantom, MB, 0.03 ml/min |
-| Fig. 3 — Detection sensitivity | `ULM_Master_GUI_v2` | Same dataset |
-| Fig. 4 — Algorithm comparison | `run_ULM_Analysis.m` | NB, 300/100 μm phantom, 0.03 ml/min |
-| Fig. 5 — Velocity profiling | `run_ULM_Analysis.m` | NB vs MB, symmetric/asymmetric phantoms |
-| Fig. 6 — Partitioning analysis | `analyze_ULM_Features.m` | NB vs MB, 3 geometries × 3 flow rates |
-| Fig. 7 — In vivo kidney TMIP | `run_ULM_Analysis_Kidney.m` | Rat kidney, MB and NB |
+| Fig. 1 - ULM pipeline overview | `run_ULM_Analysis.m` | Brain benchmark dataset |
+| Fig. 2 - SVD filter optimization | `ULM_Master_GUI_v2` | 300 μm phantom, MB, 0.03 ml/min |
+| Fig. 3 - Detection sensitivity | `ULM_Master_GUI_v2` | Same dataset |
+| Fig. 4 - Algorithm comparison | `run_ULM_Analysis.m` | NB, 300/100 μm phantom, 0.03 ml/min |
+| Fig. 5 - Velocity profiling | `run_ULM_Analysis.m` | NB vs MB, symmetric/asymmetric phantoms |
+| Fig. 6 - Partitioning analysis | `analyze_ULM_Features.m` | NB vs MB, 3 geometries × 3 flow rates |
+| Fig. 7 - In vivo kidney TMIP | `run_ULM_Analysis_Kidney.m` | Rat kidney, MB and NB |
 
 *Citation and DOI will be added upon paper acceptance.*
 
