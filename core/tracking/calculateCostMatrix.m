@@ -1,6 +1,6 @@
-function costMatrix = calculateCostMatrix_v2(activeTracks, currentLocs, params)
+function costMatrix = calculateCostMatrix(activeTracks, currentLocs, params)
 % =========================================================================
-% FUNCTION: calculateCostMatrix_v2
+% FUNCTION: calculateCostMatrix
 % AUTHOR:   Grigori Shapiro
 % =========================================================================
 %
@@ -8,8 +8,7 @@ function costMatrix = calculateCostMatrix_v2(activeTracks, currentLocs, params)
 %   Centralized engine for computing the assignment cost matrix between
 %   active tracks and new localizations. Supports Kalman-based and
 %   Hungarian tracking methods with optional advanced penalties.
-%
-%   Compared to calculateCostMatrix (v1), this version:
+%   
 %   - Uses the Kalman-smoothed correctedPath for direction estimation
 %     instead of raw noisy localizations, yielding more stable direction
 %     vectors and more accurate angle gating.
