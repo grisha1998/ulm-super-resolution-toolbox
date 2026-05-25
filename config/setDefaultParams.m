@@ -31,7 +31,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     
     % --- 1a. Core Settings (Paths & Methods) ---
     if nargin < 2 || isempty(user_data_folder)
-        user_data_folder = 'L:\Ilovich Lab\Data\21_5_26-2';  % <-- Optionally hardcode your path here:
+        user_data_folder = '';  % <-- Optionally hardcode your path here:
                                 % e.g. user_data_folder = 'C:\MyData\Experiment_01';
         
         if isempty(user_data_folder)
