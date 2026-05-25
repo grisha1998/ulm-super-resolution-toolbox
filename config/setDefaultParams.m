@@ -31,7 +31,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     
     % --- 1a. Core Settings (Paths & Methods) ---
     if nargin < 2 || isempty(user_data_folder)
-        user_data_folder = 'L:\Ilovich Lab\In Vivo Data\22_1_26-3';  % <-- Optionally hardcode your path here:
+        user_data_folder = 'L:\Ilovich Lab\Data\21_5_26-2';  % <-- Optionally hardcode your path here:
                                 % e.g. user_data_folder = 'C:\MyData\Experiment_01';
         
         if isempty(user_data_folder)
@@ -53,7 +53,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     
     user_data_subfolder             = 'Bmode'; % 'Bmode'
     user_clutter_filter_method      = 'svd_filter';    % 'svd_filter', 'svd_ssm', 'dcc_svd', 'svd_blockwise'
-    user_cutoff_svd                 = [35, 200];      % SVD Cut off fre
+    user_cutoff_svd                 = [15, 600];      % SVD Cut off fre
     user_enable_butterworth         = false;           % use butterworth filter
 
     % --- Block-wise SVD Filter Settings ---
@@ -74,6 +74,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_bsvd_min_blood_comps   = 3;      % Floor: min blood components per block.
     user_bsvd_max_tissue_frac   = 0.60;   % Ceiling: max fraction of K as tissue.
     user_bsvd_plot_maps         = false;  % Show spatial threshold maps after filtering.
+    %--------------------------------------
     
     user_spatial_method             = 'None';    % 'None', 'Gaussian', 'Median', 'DoG', 'Top-Hat'
     user_spatial_kernel             = 3;             % Kernel size (px)
@@ -81,11 +82,11 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_spatial_sigma2             = 4.0;           % Sigma 2 (for DoG)
     
     user_localization_method        = 'gaussian_fit_fast';          % 'radial', 'gaussian_fit', 'gaussian_fit_fast'
-    user_tracking_method            = 'Kalman_v2';          % 'Hungarian', 'nn', 'Kalman', 'Kalman_Advanced'
+    user_tracking_method            = 'Kalman';          % 'Hungarian', 'nn', 'Kalman', 'Kalman_Advanced'
     user_rendering_method           = 'histogram';       % 'histogram', 'gaussian'
 
     % --- 1b. Data Pre-processing (Masking & Cropping) ---
-    user_enableInteractiveMask      = false;     % Master switch for interactive mask feature
+    user_enableInteractiveMask      = true;     % Master switch for interactive mask feature
     user_generateNewMask            = false;     % true: draw a new mask; false: load existing 'Mask.mat'
     user_maskPath                   = fullfile(user_data_folder, 'Results'); % Default path to save/load mask
     
@@ -95,13 +96,13 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_vmask_gamma                = 1;           % Contrast
     user_vmask_threshold            = 0.081;       % Noise Threshold
     
-    user_enableInteractiveCrop      = true;     % Master switch for interactive cropping feature
+    user_enableInteractiveCrop      = false;     % Master switch for interactive cropping feature
     user_generateNewCrop            = false;     % true: draw a new crop rect; false: load existing 'cropBox.mat'
     user_cropPath                   = fullfile(user_data_folder, 'Results'); % Default path to save/load crop rectangle
 
     % --- 2. Localization & Detection Settings ---
-    user_detection_threshold        = 0.01;      % Sensitivity for bubble detection (0.0 to 1.0).
-    user_max_bubbles_per_frame      = 1000;       % Max candidate bubbles to process per frame.
+    user_detection_threshold        = 0.1;      % Sensitivity for bubble detection (0.0 to 1.0).
+    user_max_bubbles_per_frame      = 60;       % Max candidate bubbles to process per frame.
     user_fwhm_pixels                = [3, 3];  % Estimated bubble PSF size [x, z] in pixels.
                                                  % Set to NaN to auto-compute from acoustic wavelength: fwhm = (floor(λ/pixel_size)*2+1)
                                                  % Set to [x, z] (pixels) to override with a fixed value. A fixed odd integer (e.g., 3)
@@ -135,7 +136,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
                                              %     Circular r=150 um:       user_channel_cross_section_mm2 = pi * 0.15^2;
 
     user_enable_postprocessing      = true;  % Master switch
-    user_use_advanced_cost_matrix   = false;  
+    user_use_advanced_cost_matrix   = true;  
 
     % --- 4a. Weighted Cost Matrix Settings ---
     user_direction_weight    = 2;     % W_{dir}    % How much to penalize turns (e.g., 0-5).
@@ -154,7 +155,7 @@ function params = setDefaultParams(isKidneyExperiment, user_data_folder)
     user_kalman_process_noise       = 1;                 % Kalman adaptability for standard tracker (e.g., 5-50).
     
     % --- 4c. Kalman Enhanced Tracking Settings ---
-    % These parameters control advanced behaviors of trackKalman_v2.
+    % These parameters control advanced behaviors of trackKalman.
     % All have sensible defaults and do not need to be changed for basic use.
     user_kalman_process_noise_vel_scale = 0.1;     % Velocity scaling factor for adaptive Q.
                                                    % Q_eff = Q_base * (1 + scale * speed).

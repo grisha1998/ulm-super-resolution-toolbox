@@ -364,6 +364,7 @@ function app = buildGUILayout(app)
     app.data.mask = [];
     app.data.vesselMap = [];
     app.data.baseVesselMap = [];
+    app.data.vesselMapSource = 'none';
 
     % --- SVD Cache ---
     app.data.U = [];
@@ -1023,7 +1024,7 @@ function app = buildDetectionParamsPanel(app, parentGrid)
     app.ui.LocThreshField.Layout.Row = 5;
     app.ui.LocThreshField.Layout.Column = 2;
     
-    app.ui.LocThreshSlider = uislider(g, 'Limits', [0.01 1], ...
+    app.ui.LocThreshSlider = uislider(g, 'Limits', [0.001 1], ...
         'Value', app.data.params.loc.detection_threshold);
     app.ui.LocThreshSlider.Layout.Row = 5;
     app.ui.LocThreshSlider.Layout.Column = 3;
@@ -1985,9 +1986,9 @@ function runLocalization(fig)
                 case 'radial'
                     locs = localizeRadialSymmetry(dataToLocalize, candidateBubbles, params.loc, '');
                 case 'gaussian_fit'
-                    locs = fit2DGaussian_Fast(dataToLocalize, candidateBubbles, params.loc, '');
+                    locs = fit2DGaussian(dataToLocalize, candidateBubbles, params.loc, '');
                 case 'gaussian_fit_fast'
-                    locs = fit2DGaussian_Fast(dataToLocalize, candidateBubbles, params.loc, '');
+                    locs = fit2DGaussianSafe(dataToLocalize, candidateBubbles, params.loc, '');
                 otherwise
                     error('Unknown localization method: %s', params.loc.method);
             end
@@ -2038,10 +2039,21 @@ end
 
 function locs = fit2DGaussianSafe(filteredData, candidateBubbles, locParams, indent_prefix)
     num_candidates = height(candidateBubbles);
-    batch_size = 500;
+    batch_size = 3000;
 
     if num_candidates <= batch_size
-        locs = fit2DGaussian_Fast(filteredData, candidateBubbles, locParams, indent_prefix);
+        % --- Slim the data: send only needed frames to parfor workers ---
+        batch_frames = unique(candidateBubbles.Frame);
+        batch_data   = filteredData(:,:,batch_frames);
+        remapped     = candidateBubbles;
+        [~, remapped.Frame] = ismember(candidateBubbles.Frame, batch_frames);
+
+        locs = fit2DGaussian_Fast(batch_data, remapped, locParams, indent_prefix);
+
+        % Restore original frame numbers
+        if ~isempty(locs) && height(locs) > 0
+            locs.Frame = batch_frames(locs.Frame);
+        end
         return;
     end
 
@@ -2056,7 +2068,18 @@ function locs = fit2DGaussianSafe(filteredData, candidateBubbles, locParams, ind
         fprintf('  Batch %d/%d (candidates %d-%d)...\n', i, num_batches, start_idx, end_idx);
 
         batch_candidates = candidateBubbles(start_idx:end_idx, :);
-        locs_cell{i} = fit2DGaussian_Fast(filteredData, batch_candidates, locParams, '    ');
+
+        % --- Slim the data: extract only frames this batch needs ---
+        batch_frames = unique(batch_candidates.Frame);
+        batch_data   = filteredData(:,:,batch_frames);
+        [~, batch_candidates.Frame] = ismember(batch_candidates.Frame, batch_frames);
+
+        locs_cell{i} = fit2DGaussian_Fast(batch_data, batch_candidates, locParams, '    ');
+
+        % Restore original frame numbers in the output
+        if ~isempty(locs_cell{i}) && height(locs_cell{i}) > 0
+            locs_cell{i}.Frame = batch_frames(locs_cell{i}.Frame);
+        end
 
         if i < num_batches
             pause(0.1);
@@ -2741,8 +2764,53 @@ function setStatus(ref, msg, color)
 end
 
 function showProgress(ref, msg, ~)
-    % Optional 3rd argument is accepted for backward compatibility.
-    if isgraphics(ref), app = guidata(ref); else, app = ref; end
+% SHOWPROGRESS  Create or update a modal indeterminate progress dialog.
+%
+%   On the FIRST call inside a pipeline run, this creates a uiprogressdlg
+%   that is modal over the parent uifigure.  Subsequent calls merely update
+%   the Message text, so that each sub-step (e.g. "Computing SVD…",
+%   "Applying Butterworth…") appears in the same dialog without flicker.
+%
+%   The dialog handle is stored via setappdata (key: 'ULM_ModalDlg')
+%   rather than in guidata, which avoids any data-integrity conflicts with
+%   the app struct that pipeline functions continuously read and write.
+%
+%   The optional 3rd argument is accepted for backward compatibility and
+%   is silently ignored.
+
+    % --- Resolve figure handle ---
+    if isgraphics(ref)
+        fig = ref;
+        app = guidata(ref);
+    else
+        app = ref;
+        fig = app.fig;
+    end
+
+    % --- Modal dialog: create or update ---
+    dlg = [];
+    if isappdata(fig, 'ULM_ModalDlg')
+        dlg = getappdata(fig, 'ULM_ModalDlg');
+    end
+
+    if ~isempty(dlg) && isobject(dlg) && isvalid(dlg)
+        % Dialog already visible — just update the message text
+        dlg.Message = msg;
+    else
+        % First call in this pipeline run — create the dialog
+        try
+            dlgTitle = deriveProgressTitle(msg);
+            dlg = uiprogressdlg(fig, ...
+                'Title',         dlgTitle, ...
+                'Message',       msg, ...
+                'Indeterminate', 'on');      % animated bar, no % needed
+            setappdata(fig, 'ULM_ModalDlg', dlg);
+        catch
+            % Fail silently — the pipeline must not abort because of UI
+        end
+    end
+
+    % --- Existing status-bar update (non-modal, always runs) ---
     if isfield(app.ui, 'ProgressBar') && ~isempty(app.ui.ProgressBar)
         try
             if isobject(app.ui.ProgressBar) && isvalid(app.ui.ProgressBar)
@@ -2758,7 +2826,37 @@ function showProgress(ref, msg, ~)
 end
 
 function hideProgress(ref)
-    if isgraphics(ref), app = guidata(ref); else, app = ref; end
+% HIDEPROGRESS  Close the modal progress dialog and re-enable the parent figure.
+%
+%   This function is safe to call multiple times.  If the dialog has
+%   already been closed (or was never created), it silently does nothing.
+%   The fail-safe try-catch ensures the parent window is never permanently
+%   locked, even if the dialog object is in a bad state.
+
+    % --- Resolve figure handle ---
+    if isgraphics(ref)
+        fig = ref;
+        app = guidata(ref);
+    else
+        app = ref;
+        fig = app.fig;
+    end
+
+    % --- Close modal dialog ---
+    if isappdata(fig, 'ULM_ModalDlg')
+        dlg = getappdata(fig, 'ULM_ModalDlg');
+        try
+            if ~isempty(dlg) && isobject(dlg) && isvalid(dlg)
+                close(dlg);
+            end
+        catch
+            % Force-delete if close() fails
+            try delete(dlg); catch, end
+        end
+        rmappdata(fig, 'ULM_ModalDlg');
+    end
+
+    % --- Existing ProgressBar logic (backward compat) ---
     if isfield(app.ui, 'ProgressBar') && ~isempty(app.ui.ProgressBar)
         try
             if isobject(app.ui.ProgressBar) && isvalid(app.ui.ProgressBar)
@@ -2766,6 +2864,33 @@ function hideProgress(ref)
             end
         catch
         end
+    end
+end
+
+function t = deriveProgressTitle(msg)
+% DERIVEPROGRESSTITLE  Map a progress message to a human-readable stage title.
+%
+%   This keeps the dialog window title informative without requiring any
+%   change to the calling pipeline functions.  The mapping is based on
+%   keywords that already appear in the existing showProgress calls.
+
+    msg_lower = lower(msg);
+    if     contains(msg_lower, 'filter') || contains(msg_lower, 'svd') || contains(msg_lower, 'butterworth') || contains(msg_lower, 'dcc')
+        t = 'Step 1 — Clutter Filtering';
+    elseif contains(msg_lower, 'detect') || contains(msg_lower, 'bubble')
+        t = 'Step 2 — Bubble Detection';
+    elseif contains(msg_lower, 'localiz')
+        t = 'Step 3 — Sub-pixel Localization';
+    elseif contains(msg_lower, 'track')
+        t = 'Step 4 — Particle Tracking';
+    elseif contains(msg_lower, 'post-process') || contains(msg_lower, 'processing track')
+        t = 'Step 5 — Track Post-Processing';
+    elseif contains(msg_lower, 'render') || contains(msg_lower, 'generat')
+        t = 'Step 6 — Rendering Maps';
+    elseif contains(msg_lower, 'saving') || contains(msg_lower, 'loading') || contains(msg_lower, 'session')
+        t = 'Session I/O';
+    else
+        t = 'ULM Processing';
     end
 end
 
@@ -2857,6 +2982,16 @@ function cleanupGUI(fig)
     % ---- 3. UndoRedoManager history ----
     if isfield(app, 'undoManager') && ~isempty(app.undoManager)
         try app.undoManager.clear(); catch, end
+    end
+
+    % ---- 3b. Close modal progress dialog (if still open) ----
+    if isappdata(fig, 'ULM_ModalDlg')
+        try
+            dlg = getappdata(fig, 'ULM_ModalDlg');
+            if ~isempty(dlg) && isvalid(dlg), close(dlg); end
+        catch
+        end
+        try rmappdata(fig, 'ULM_ModalDlg'); catch, end
     end
 
     % ---- 4. Close progress dialog ----
@@ -3636,19 +3771,34 @@ function prepareROITab(fig)
     if isempty(app.data.filteredData), return; end
 
     if isempty(app.data.baseVesselMap)
-        showProgress(fig, 'Calculating vessel map...');
+        [H, W, ~] = size(app.data.filteredData);
 
-        if ~isreal(app.data.filteredData)
-            absData = abs(app.data.filteredData);
+        % --- Attempt 1: Load pre-computed vessel map from Results folder ---
+        vMap = tryLoadExternalVesselMap(app, [H, W]);
+
+        if ~isempty(vMap)
+            app.data.vesselMapSource = 'external';
+            fprintf('  Using external vessel map from Results folder.\n');
         else
-            absData = app.data.filteredData;
-        end
+            % --- Attempt 2: Fallback — compute TMIP from current data ---
+            showProgress(fig, 'Calculating vessel map (TMIP)...');
 
-        vMap = mean(absData, 3);
-        vMap = vMap .^ 0.5;
-        mx = max(vMap(:));
-        if mx > 0
-            vMap = vMap / mx;
+            if ~isreal(app.data.filteredData)
+                absData = abs(app.data.filteredData);
+            else
+                absData = app.data.filteredData;
+            end
+
+            vMap = mean(absData, 3);
+            vMap = vMap .^ 0.5;
+            mx = max(vMap(:));
+            if mx > 0
+                vMap = vMap / mx;
+            end
+
+            app.data.vesselMapSource = 'tmip';
+            fprintf('  No external vessel map found — using TMIP fallback.\n');
+            hideProgress(fig);
         end
 
         app.data.baseVesselMap = vMap;
@@ -3663,7 +3813,14 @@ function prepareROITab(fig)
         app.ui.ROIThreshSlider.Value   = 0;
         app.ui.ROIThreshField.Value    = 0;
 
-        hideProgress(fig);
+        % Update status label
+        if isfield(app.ui, 'maskStatusLabel') && isvalid(app.ui.maskStatusLabel)
+            if strcmp(app.data.vesselMapSource, 'external')
+                app.ui.maskStatusLabel.Text = 'Vessel map: External (full dataset)';
+            else
+                app.ui.maskStatusLabel.Text = 'Vessel map: TMIP (single file)';
+            end
+        end
     end
 
     app.ui.EnhanceMethodDrop.Value   = 'None';
@@ -3675,6 +3832,159 @@ function prepareROITab(fig)
     guidata(fig, app);
     updateHistogram(app);
     displayCurrentFrame(fig);
+end
+
+function vMap = tryLoadExternalVesselMap(app, targetSize)
+% TRYLOADEXTERNALVESSELMAP  Search for a pre-computed vessel map in the
+%   experiment's Results folder and return it resized & normalized to match
+%   the currently loaded filtered data.
+%
+%   SEARCH ORDER (walks up to 3 parent levels):
+%       1.  <data_folder>/Results/
+%       2.  <data_folder>/../Results/
+%       3.  <data_folder>/../../Results/
+%
+%   FILENAME PATTERNS (tried in order):
+%       mean_bmode_vessel_*.mat
+%       mean_bmode_*.mat
+%
+%   INPUTS:
+%       app        – guidata struct (needs app.data.params.io.data_folder)
+%       targetSize – [H, W] that the output must match (filtered data dims)
+%
+%   OUTPUT:
+%       vMap – Normalized [0,1] vessel map sized [H, W], or [] if nothing found.
+
+    vMap = [];
+    TAG  = '[VesselMap]';
+
+    % --- Resolve data folder ---
+    if ~isfield(app.data.params, 'io') || ...
+       ~isfield(app.data.params.io, 'data_folder')
+        fprintf('  %s Skipped: app.data.params.io.data_folder field missing.\n', TAG);
+        return;
+    end
+
+    dataFolder = app.data.params.io.data_folder;
+    if isempty(dataFolder)
+        fprintf('  %s Skipped: data_folder is empty.\n', TAG);
+        return;
+    end
+
+    % Clean trailing separators for reliable fileparts behavior
+    dataFolder = regexprep(dataFolder, '[/\\]+$', '');
+
+    if ~isfolder(dataFolder)
+        fprintf('  %s Skipped: data_folder is not a valid folder: "%s"\n', TAG, dataFolder);
+        return;
+    end
+
+    fprintf('  %s Data folder: "%s"\n', TAG, dataFolder);
+
+    % --- Build search directories: walk up to 3 parent levels ---
+    searchDirs = {};
+    current = dataFolder;
+    for level = 0:2
+        candidate = fullfile(current, 'Results');
+        searchDirs{end+1} = candidate; %#ok<AGROW>
+        parent = fileparts(current);
+        if strcmp(parent, current), break; end  % reached filesystem root
+        current = parent;
+    end
+
+    % --- Filename patterns to try (most specific first) ---
+    patterns = {'mean_bmode_vessel_*.mat', 'mean_bmode_*.mat'};
+
+    % --- Search ---
+    matFile  = '';
+    foundDir = '';
+    for d = 1:numel(searchDirs)
+        if ~isfolder(searchDirs{d})
+            fprintf('  %s  Search [%d]: NOT FOUND  "%s"\n', TAG, d, searchDirs{d});
+            continue;
+        end
+        fprintf('  %s  Search [%d]: scanning   "%s"\n', TAG, d, searchDirs{d});
+
+        for p = 1:numel(patterns)
+            candidates = dir(fullfile(searchDirs{d}, patterns{p}));
+            if ~isempty(candidates)
+                % Pick the largest file (likely highest magnification)
+                [~, idx] = max([candidates.bytes]);
+                matFile  = fullfile(searchDirs{d}, candidates(idx).name);
+                foundDir = searchDirs{d};
+                fprintf('  %s  MATCH: "%s" (%.1f KB, pattern "%s")\n', ...
+                    TAG, candidates(idx).name, candidates(idx).bytes/1024, patterns{p});
+                break;
+            end
+        end
+        if ~isempty(matFile), break; end
+
+        % Show what IS in the folder so the user can spot naming issues
+        allMats = dir(fullfile(searchDirs{d}, '*.mat'));
+        if ~isempty(allMats)
+            names = {allMats.name};
+            fprintf('  %s  No pattern match. Files present: %s\n', TAG, strjoin(names, ', '));
+        else
+            fprintf('  %s  Folder exists but contains no .mat files.\n', TAG);
+        end
+    end
+
+    if isempty(matFile)
+        fprintf('  %s No external vessel map found in any search path.\n', TAG);
+        return;
+    end
+
+    % --- Load and extract the 2D vessel image ---
+    try
+        fprintf('  %s Loading: "%s"\n', TAG, matFile);
+        contents = load(matFile);
+        fields   = fieldnames(contents);
+        raw      = [];
+        usedVar  = '';
+
+        for k = 1:numel(fields)
+            v = contents.(fields{k});
+            if isnumeric(v) && ismatrix(v) && min(size(v)) > 1
+                raw     = double(v);
+                usedVar = fields{k};
+                break;
+            end
+        end
+
+        if isempty(raw)
+            fprintf('  %s File loaded but no 2D matrix found. Variables: %s\n', ...
+                TAG, strjoin(fields, ', '));
+            return;
+        end
+
+        fprintf('  %s Extracted variable "%s" [%d x %d]\n', ...
+            TAG, usedVar, size(raw,1), size(raw,2));
+
+    catch ME
+        fprintf('  %s Load failed: %s\n', TAG, ME.message);
+        return;
+    end
+
+    % --- Resize to match filtered data dimensions ---
+    H = targetSize(1);
+    W = targetSize(2);
+    if size(raw, 1) ~= H || size(raw, 2) ~= W
+        fprintf('  %s Resizing from [%d x %d] to [%d x %d]...\n', ...
+            TAG, size(raw,1), size(raw,2), H, W);
+        raw = imresize(raw, [H W], 'bilinear');
+    end
+
+    % --- Normalize: abs -> sqrt compression -> scale to [0,1] ---
+    raw = abs(raw);
+    raw = raw .^ 0.5;
+    mx  = max(raw(:));
+    if mx > 0
+        vMap = raw / mx;
+    else
+        vMap = raw;
+    end
+    fprintf('  %s External vessel map ready. Range: [%.4f, %.4f]\n', ...
+        TAG, min(vMap(:)), max(vMap(:)));
 end
 
 function applyVesselEnhancement(fig, sliderVal)
@@ -3806,11 +4116,18 @@ function loadMask(fig)
         if ~isfield(app.data.params, 'proc'), app.data.params.proc = struct(); end
         app.data.params.proc.maskPath = fullfile(path, file);
         app.data.params.proc.ROIMask = logical(mask);
+        % Feed the display layer so the red contour renders
+        app.data.mask = logical(mask);
+        % Build the red overlay template (same logic as prepareROITab)
+        app.data.redOverlayTemplate = cat(3, ones(size(mask)), zeros(size(mask)), zeros(size(mask)));
+
         guidata(fig, app);
         if isfield(app.ui, 'maskStatusLabel') && isvalid(app.ui.maskStatusLabel)
             app.ui.maskStatusLabel.Text = sprintf('Mask loaded: %s', file);
         end
         setStatus(app, sprintf('Mask loaded: %s', file), 'green');
+        % Refresh display so the mask contour appears immediately
+        displayCurrentFrame(fig);
     catch ME
         uialert(app.fig, sprintf('Load mask failed: %s', ME.message), 'Error');
     end
@@ -3850,6 +4167,7 @@ function resetROIPanel(fig)
 
     % --- Clear all vessel map / mask data ---
     app.data.baseVesselMap      = [];
+    app.data.vesselMapSource    = 'none';
     app.data.vesselMap          = [];
     app.data.mask               = [];
     app.data.redOverlayTemplate = [];

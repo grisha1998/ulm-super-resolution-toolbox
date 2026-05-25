@@ -172,7 +172,7 @@ function terminatedTracks = runTrackingPass(localizations, params, indent_prefix
     nextTrackID        = 1;
     assignment_method  = lower(params.track.kalman.assignment_method);
 
-    fprintf('%s  Kalman v2 tracking pass...\n', indent_prefix);
+    fprintf('%s  Kalman tracking pass...\n', indent_prefix);
 
     % --- Build a frame-number -> localization-table lookup ---
     % This allows iterating over the full frame range (including empty
@@ -744,7 +744,7 @@ end
 function printTrackingSummary(tracks, localizations, indent_prefix)
 % PRINTTRACKINGSUMMARY  Prints post-tracking statistics to the console.
 
-    fprintf('%sKalman v2 tracking complete. Found %d valid tracks after QC.\n', ...
+    fprintf('%sKalman tracking complete. Found %d valid tracks after QC.\n', ...
         indent_prefix, length(tracks));
 
     total_initial = height(localizations);

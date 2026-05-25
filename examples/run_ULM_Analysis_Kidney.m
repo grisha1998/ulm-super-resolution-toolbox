@@ -365,7 +365,7 @@ else
     if ~exist(originalFolder, 'dir')
         % Dividing the superframes into smaller batches of 1500 frames - for both Bmode and PI
         fprintf('--- Divides the superframes into batches --- \n\n')
-        %split_ImageData_tot_Kidney(fullfile(processor.params.io.data_folder, processor.params.expParams.bubbleType), processor.params.expParams.bubbleType, 1500)
+        split_ImageData_tot_Kidney(fullfile(processor.params.io.data_folder, processor.params.expParams.bubbleType), processor.params.expParams.bubbleType, 1500)
     end
     processor = ULM_Processor(params);
 end
@@ -715,56 +715,219 @@ function str = B_SWITCH(bool_val)
 end
 
 function mean_bmode = generate_mean_bmode_image(data_files, params, vessel_or_tissue)
-    % Generates a mean B-mode image from all buffers for overlay purposes.
-    % Upsample to match the SR image dimensions
-    % vessel_or_tissue: 0 - vessel, 1 - tissue
+% GENERATE_MEAN_BMODE_IMAGE  Produce a mean B-mode overlay at super-resolution.
+%
+%   This function builds a high-quality mean image from ALL acquisition
+%   files by: loading each → SVD filtering → temporal mean → accumulation.
+%   The result is sqrt-compressed and resized to the requested super-
+%   resolution grid.
+%
+%   CACHING:  The expensive native-resolution base image is saved to disk
+%   the first time it is computed.  Subsequent calls — even at different
+%   upsampling factors — skip the full pipeline and only perform a cheap
+%   imresize from the cached base.
+%
+%   Cache file location:  <data_folder>/Results/mean_bmode_<mode>_<hash>.mat
+%   where <mode> is "vessel" or "tissue" and <hash> encodes the SVD cutoff
+%   and Butterworth settings so that parameter changes trigger a fresh
+%   computation.
+%
+%   INPUTS:
+%       data_files        – struct array from dir() pointing to .mat files
+%       params            – full parameter struct (filter, acq, render, etc.)
+%       vessel_or_tissue  – 0 = vessel (SVD high-pass)
+%                           1 = tissue (SVD low-pass)
+%
+%   OUTPUT:
+%       mean_bmode – [H_SR x W_SR] image at the requested upsampling factor
+
+    TAG = '[MeanBmode]';
+
+    % --- Target super-resolution dimensions ---
     sRes_dims = params.expParams.size(1:2) * params.render.upsampling_factor;
-    
-    % Check if files exist
+
     if isempty(data_files)
-        warning('No data files found to generate mean B-mode image.');
+        warning('%s No data files found. Returning zeros.', TAG);
         mean_bmode = zeros(sRes_dims);
         return;
     end
-    
-    num_files = length(data_files);
+
+    % =====================================================================
+    %  STEP 1:  Resolve the native-resolution base image (cached or fresh)
+    % =====================================================================
+
+    base_image = tryLoadCachedBase(data_files, params, vessel_or_tissue, TAG);
+
+    if isempty(base_image)
+        % --- No cache found — compute from scratch ---
+        base_image = computeBaseFromAllFiles(data_files, params, vessel_or_tissue, TAG);
+
+        % --- Save to disk for future calls ---
+        trySaveCachedBase(base_image, data_files, params, vessel_or_tissue, TAG);
+    end
+
+    % =====================================================================
+    %  STEP 2:  Resize to the requested super-resolution grid
+    % =====================================================================
+
+    mean_bmode = imresize(base_image, sRes_dims);
+    fprintf('  %s Resized to [%d x %d] (upsampling = %d).\n', ...
+        TAG, sRes_dims(1), sRes_dims(2), params.render.upsampling_factor);
+end
+
+
+% =========================================================================
+%  PRIVATE HELPERS
+% =========================================================================
+
+function base_image = computeBaseFromAllFiles(data_files, params, vessel_or_tissue, TAG)
+% COMPUTEBASEFROMALLFILES  Full pipeline: load → filter → accumulate → sqrt.
+%
+%   Returns the native-resolution base image (no upsampling applied).
+
+    num_files = numel(data_files);
+    fprintf('  %s Computing base image from %d file(s)...\n', TAG, num_files);
+    t0 = tic;
+
     accumulated_mean = 0;
-    
-    % Loop through all files in the directory/list
+
     for i = 1:num_files
-        % Load the current buffer
+        fprintf('  %s  [%d/%d] %s\n', TAG, i, num_files, data_files(i).name);
+
+        % --- Load raw data ---
         dataStruct = load(fullfile(data_files(i).folder, data_files(i).name));
-        dataFields = fieldnames(dataStruct); 
-        rawData = dataStruct.(dataFields{1});
-        
-        % Filter data based on vessel or tissue selection
-        if vessel_or_tissue == 0
-            filteredData = SVD_filter(rawData, params.filter.svd_cutoff);
-        elseif vessel_or_tissue == 1
+        dataFields = fieldnames(dataStruct);
+        rawData    = dataStruct.(dataFields{1});
+
+        % --- SVD clutter filter ---
+        if vessel_or_tissue == 1
+            % Tissue mode: low-pass (keep first components)
             c1 = params.filter.svd_cutoff;
-            filteredData = SVD_filter(rawData, [0 c1(1)]);
+            filteredData = SVD_filter(rawData, [0, c1(1)]);
         else
+            % Vessel mode (default): high-pass
             filteredData = SVD_filter(rawData, params.filter.svd_cutoff);
         end
 
-        % Apply Butterworth filter if enabled
+        % --- Optional Butterworth bandpass ---
         if isfield(params.filter, 'enable_butterworth') && params.filter.enable_butterworth
-            filteredData = Butterworth_bandpass_filter(filteredData, params.filter.butter_cutoff, params.acq.framerate, params.filter.butter_order);
+            filteredData = Butterworth_bandpass_filter(filteredData, ...
+                params.filter.butter_cutoff, params.acq.framerate, ...
+                params.filter.butter_order);
         end
-        
-        % Calculate the mean of the absolute values for the current file and accumulate
-        current_mean = double(mean(abs(filteredData), 3));
-        accumulated_mean = accumulated_mean + current_mean;
+
+        % --- Accumulate temporal mean of absolute values ---
+        accumulated_mean = accumulated_mean + double(mean(abs(filteredData), 3));
     end
-    
-    % Average the accumulated means across all files
-    final_mean = accumulated_mean / num_files;
-    
-    % Apply the power factor
-    final_mean = final_mean.^(0.5);
-    
-    % Resize to target dimensions
-    mean_bmode = imresize(final_mean, sRes_dims);
+
+    % --- Sqrt compression for display dynamic range ---
+    base_image = (accumulated_mean / num_files) .^ 0.5;
+
+    fprintf('  %s Base image computed in %.1f s  [%d x %d]\n', ...
+        TAG, toc(t0), size(base_image, 1), size(base_image, 2));
+end
+
+
+function cache_path = buildCachePath(data_files, params, vessel_or_tissue)
+% BUILDCACHEPATH  Deterministic cache file path encoding all relevant params.
+%
+%   Path:  <data_folder>/Results/mean_bmode_<mode>_<hash>.mat
+%
+%   The hash captures: SVD cutoff, Butterworth on/off + settings, and the
+%   number of source files — so any parameter change invalidates the cache.
+
+    mode_str = 'vessel';
+    if vessel_or_tissue == 1
+        mode_str = 'tissue';
+    end
+
+    % Build a compact fingerprint from the filter settings
+    svd_cutoff = params.filter.svd_cutoff;
+    bw_on = isfield(params.filter, 'enable_butterworth') && params.filter.enable_butterworth;
+    if bw_on
+        bw_sig = [params.filter.butter_cutoff(:)', params.filter.butter_order];
+    else
+        bw_sig = 0;
+    end
+    fingerprint = [svd_cutoff(:)', double(bw_on), bw_sig(:)', numel(data_files)];
+
+    % Short numeric hash (deterministic, collision-resistant for this use)
+    hash_val = mod(sum(fingerprint .* (1:numel(fingerprint)).^2 * 31), 1e8);
+    hash_str = sprintf('%08.0f', hash_val);
+
+    % Resolve the Results folder (sibling to where data files live)
+    data_folder = params.io.data_folder;
+    results_dir = fullfile(data_folder, 'Results');
+
+    % Walk up one level if Results is not a sibling of the data folder
+    if ~isfolder(results_dir)
+        parent = fileparts(regexprep(data_folder, '[/\\]+$', ''));
+        alt    = fullfile(parent, 'Results');
+        if isfolder(alt)
+            results_dir = alt;
+        end
+        % If neither exists, we'll create Results next to the data
+    end
+
+    cache_path = fullfile(results_dir, ...
+        sprintf('mean_bmode_%s_%s.mat', mode_str, hash_str));
+end
+
+
+function base_image = tryLoadCachedBase(data_files, params, vessel_or_tissue, TAG)
+% TRYLOADCACHEDBASE  Attempt to load a previously computed base image.
+%
+%   Returns the base image matrix, or [] if no valid cache exists.
+
+    base_image = [];
+    cache_path = buildCachePath(data_files, params, vessel_or_tissue);
+
+    if ~isfile(cache_path)
+        fprintf('  %s No cache found at: %s\n', TAG, cache_path);
+        return;
+    end
+
+    try
+        contents = load(cache_path, 'base_image');
+        if isfield(contents, 'base_image') && isnumeric(contents.base_image) ...
+                && min(size(contents.base_image)) > 1
+            base_image = contents.base_image;
+            fprintf('  %s Loaded cached base image [%d x %d] from:\n         %s\n', ...
+                TAG, size(base_image,1), size(base_image,2), cache_path);
+        else
+            fprintf('  %s Cache file exists but has no valid base_image. Recomputing.\n', TAG);
+        end
+    catch ME
+        fprintf('  %s Cache load failed (%s). Recomputing.\n', TAG, ME.message);
+    end
+end
+
+
+function trySaveCachedBase(base_image, data_files, params, vessel_or_tissue, TAG)
+% TRYSAVECACHEDBASE  Persist the base image to disk for future reuse.
+
+    cache_path = buildCachePath(data_files, params, vessel_or_tissue);
+
+    % Ensure the Results directory exists
+    results_dir = fileparts(cache_path);
+    if ~isfolder(results_dir)
+        try
+            mkdir(results_dir);
+            fprintf('  %s Created directory: %s\n', TAG, results_dir);
+        catch ME
+            fprintf('  %s Cannot create Results folder (%s). Cache not saved.\n', TAG, ME.message);
+            return;
+        end
+    end
+
+    try
+        filter_params = params.filter;                          %#ok<NASGU>
+        num_source_files = numel(data_files);                   %#ok<NASGU>
+        save(cache_path, 'base_image', 'filter_params', 'num_source_files', '-v7.3');
+        fprintf('  %s Cached base image saved to:\n         %s\n', TAG, cache_path);
+    catch ME
+        fprintf('  %s Cache save failed (%s). Non-critical, continuing.\n', TAG, ME.message);
+    end
 end
 
 function [mask, roi] = buildROIMask(IQfiles)
@@ -1288,8 +1451,8 @@ function indices_to_remove = calculate_indices_to_remove(savingpath, expected_bp
                                       % to find the true minimum in the raw signal.
     
     % --- Region Definition Step ---
-    region_width_coeff_start = -0.5; % -0.3 tali kidney  -0.6
-    region_width_coeff_end = +0.3; % +1.2 tali kidney    +0.8
+    region_width_coeff_start = -0.5;
+    region_width_coeff_end = +0.3;
         % TUNABLE: Multiplier for standard deviation to set the start/end
         % of the removal region. A more negative value (e.g., -0.5)
         % will result in a WIDER removal region around each breath.

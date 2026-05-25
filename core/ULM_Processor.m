@@ -19,7 +19,7 @@
 % UPDATING PARAMETERS AFTER CONSTRUCTION:
 %   Since this is a handle class, params can be modified directly without
 %   re-constructing the processor (which would create duplicate folders):
-%       processor.params.track.method = 'kalman_v2';
+%       processor.params.track.method = 'kalman';
 %       processor.params.track.kalman.process_noise = 5;
 %   For changes that affect the results directory path (upsampling_factor,
 %   tracking method), call updateParams() to regenerate the path:
@@ -189,7 +189,7 @@
 %
 %   tracks = track_bubbles(localizations, indent_prefix)
 %       Dispatches to the configured tracker: hungarian, nn, kalman,
-%       kalman_v2, or kalman_advanced. Returns a struct array of tracks.
+%       or kalman_advanced. Returns a struct array of tracks.
 %
 %   [density, velocity, weights] = render_tracks(tracks, sRes_dims)
 %       Dispatches to histogram or Gaussian renderer. Returns three
@@ -236,8 +236,7 @@
 %   - SVD_filter / SVD_SSM / DCC_SVD / SVD_blockwise (clutter filters)
 %   - detectBubbles / detectBubbles_NP / detectBubbles_NCC (detectors)
 %   - localizeRadialSymmetry / fit2DGaussian / fit2DGaussian_Fast
-%   - trackHungarian / trackNearestNeighbor / trackKalman / trackKalman_v2
-%     / trackKalman_Advanced
+%   - trackHungarian / trackNearestNeighbor / trackKalman / trackKalman_Advanced
 %   - renderHistogram / renderGaussian
 %   - analyze_ULM_Features (optional, for statistics)
 %   - Butterworth_bandpass_filter (optional)
@@ -302,7 +301,8 @@ classdef ULM_Processor < handle
             fprintf('       Results: %s\n', obj.results_dir);
 
             % Locate data files
-            obj.data_files = dir(fullfile(input_data_folder, obj.params.io.file_pattern));
+            IQfiles_Bmode = dir(fullfile(input_data_folder, obj.params.io.file_pattern));
+            obj.data_files = obj.sortFilesByNumber(IQfiles_Bmode);
             if isempty(obj.data_files)
                 error('ULM:NoDataFiles', ...
                     'No files matching "%s" in "%s".', ...
@@ -371,7 +371,7 @@ classdef ULM_Processor < handle
         %   (e.g., tracking method, upsampling factor).
         %
         %   Usage:
-        %       params.track.method = 'kalman_v2';
+        %       params.track.method = 'kalman';
         %       processor.updateParams(params);
 
             obj.params = newParams;
@@ -1305,6 +1305,36 @@ classdef ULM_Processor < handle
             catch ME
                 warning(ME.identifier, 'Feature analysis failed: %s', ME.message);
             end
+        end
+
+        function IQfiles_sorted = sortFilesByNumber(obj, IQfiles)
+            % Initialize array for file numbers
+            fileNumbers = NaN(length(IQfiles), 1);
+            
+            for i = 1:length(IQfiles)
+                % Get the full name (extension doesn't usually matter for number extraction, 
+                % but ignoring it is safer if the extension has numbers like .mp4)
+                [~, name, ~] = fileparts(IQfiles(i).name);
+                
+                % Find ALL consecutive digits in the filename
+                % 'match' returns a cell array of strings, e.g., {'2025', '001'}
+                numbersFound = regexp(name, '\d+', 'match');
+                
+                if ~isempty(numbersFound)
+                    % Assume the batch index is the LAST number in the filename
+                    % This handles "Data_2025_Set_001" correctly (takes 001)
+                    lastNumberStr = numbersFound{end};
+                    fileNumbers(i) = str2double(lastNumberStr);
+                else
+                    % If no number found, assign a value to put it at the end (or start)
+                    fileNumbers(i) = inf; 
+                end
+            end
+            
+            % Sort the files based on the extracted numbers
+            % checking for NaNs ensures we don't crash if a file has no numbers
+            [~, sortIdx] = sort(fileNumbers);
+            IQfiles_sorted = IQfiles(sortIdx);
         end
 
     end % private methods

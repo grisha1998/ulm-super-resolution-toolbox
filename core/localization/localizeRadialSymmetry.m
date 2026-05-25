@@ -124,8 +124,8 @@ function localizations = localizeRadialSymmetry(filteredData, candidateBubbles, 
         
         % Step 2b.2: Smooth the gradients
         h = ones(3)/9;
-        fdu = conv2(dIdu, h, 'same');
-        fdv = conv2(dIdv, h, 'same');
+        fdu = imfilter(dIdu, h, 'replicate', 'conv');
+        fdv = imfilter(dIdv, h, 'replicate', 'conv');
         g_mag_sq = fdu.*fdu + fdv.*fdv;
         
         % --- QC 3: Gradient Check ---
@@ -168,7 +168,7 @@ function localizations = localizeRadialSymmetry(filteredData, candidateBubbles, 
         
         % Calculate weights: stronger weight for high-gradient, near-centroid points
         dist_from_centroid = sqrt((zm - zcentroid).^2 + (xm - xcentroid).^2);
-        dist_from_centroid(dist_from_centroid < eps) = eps; % Avoid division by zero
+        dist_from_centroid(dist_from_centroid < 1e-3) = 1e-3; % Avoid division by zero
         w = g_mag_sq ./ dist_from_centroid;
         
         % Step 2b.5: Solve for the center of symmetry (xc, zc)

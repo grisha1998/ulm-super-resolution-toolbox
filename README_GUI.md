@@ -1,4 +1,4 @@
-# ULM Master GUI v3.0 - Definitive Documentation Manual
+# ULM Master GUI v3.0 — Definitive Documentation Manual
 
 ### An Interactive Optimization Platform for Ultrasound Localization Microscopy
 

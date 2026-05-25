@@ -66,7 +66,7 @@ fprintf('=======================================================\n\n');
 % --- Improvement: Interactive folder selection with default path ---
 fprintf('>> Please select the main experiment folder...\n');
 % --- Change: Added default path for opening the window ---
-default_path = pwd; %default_path = 'E:\Ilovich Lab\In Vivo Data'; 
+default_path = pwd; % e.g., 'C:\Path\To\Data'
 if ~exist(default_path, 'dir')
     default_path = ''; % If folder doesn't exist, open in last used
 end

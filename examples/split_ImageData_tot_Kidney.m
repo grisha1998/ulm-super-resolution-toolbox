@@ -13,6 +13,9 @@ function split_ImageData_tot_Kidney(data_folder, M_or_N, Sub_Batch_Size)
 %     slices these massive 3D matrices along the temporal dimension into 
 %     smaller, sequential files. It ensures data integrity by archiving the 
 %     original files rather than overwriting them.
+%   - Memory Optimization: Includes explicit RAM cleanup mechanisms to prevent 
+%     "Out of Memory" crashes when sequentially loading multiple massive matrices 
+%     in a loop.
 %
 % DETAILED METHODOLOGY (LOGIC & WORKFLOW):
 %   1. Initialization & Scanning: The function accepts a root directory and 
@@ -21,13 +24,18 @@ function split_ImageData_tot_Kidney(data_folder, M_or_N, Sub_Batch_Size)
 %   2. Dynamic Size Detection: It loads a single sample file to dynamically 
 %      determine the original `Batch_Size` (the length of the 3rd dimension, 
 %      representing frames/time).
-%   3. Partitioning Math: Calculates the required number of sub-batches based 
+%   3. RAM Initialization Cleanup: Clears reference data variables immediately 
+%      after extracting dimensions to free up baseline memory.
+%   4. Partitioning Math: Calculates the required number of sub-batches based 
 %      on the user-defined `Sub_Batch_Size`.
-%   4. Slicing & Export (B-mode & PI):
+%   5. Slicing & Export (B-mode & PI):
 %      - Iterates through every file in the directory.
 %      - Slices the 3D matrix along the 3rd dimension: `(:,:, idxStart:idxEnd)`.
 %      - Saves the newly created sub-batch with a sequential naming convention.
-%   5. Data Archiving (Safety Mechanism): To prevent data loss or infinite 
+%   6. Iterative Memory Management: Explicitly clears large dataset matrices 
+%      (`tmp_Bmode`, `tmp_PI`, `ImageData_tot`) at the end of each file iteration 
+%      to ensure the garbage collector releases RAM before the next loop iteration.
+%   7. Data Archiving (Safety Mechanism): To prevent data loss or infinite 
 %      processing loops, the original massive `.mat` file is moved into a 
 %      newly created 'original' subfolder.
 %
@@ -97,6 +105,9 @@ function split_ImageData_tot_Kidney(data_folder, M_or_N, Sub_Batch_Size)
     % Calculate the number of sub-batches needed per file
     N_Sub_Batches = ceil(Batch_Size / Sub_Batch_Size);
     
+    % Clear reference variables to free memory before entering processing loops
+    clear dataStruct ImageData_tot;
+    
     % ---------------------------------------------------------------------
     % Step 2: Process B-mode files (Only if files exist)
     % ---------------------------------------------------------------------
@@ -139,6 +150,9 @@ function split_ImageData_tot_Kidney(data_folder, M_or_N, Sub_Batch_Size)
                 mkdir(originalFolder);
             end
             movefile(fullfile(IQfiles_Bmode(i).folder, IQfiles_Bmode(i).name), originalFolder);
+            
+            % Clear current batch data from memory before loading the next file
+            clear tmp_Bmode ImageData_tot;
         end
     else
         fprintf('No B-mode files found. Skipping B-mode processing.\n');
@@ -185,6 +199,9 @@ function split_ImageData_tot_Kidney(data_folder, M_or_N, Sub_Batch_Size)
                 mkdir(originalFolder);
             end
             movefile(fullfile(IQfiles_PI(i).folder, IQfiles_PI(i).name), originalFolder);
+            
+            % Clear current batch data from memory before loading the next file
+            clear tmp_PI ImageData_tot;
         end
     else
         fprintf('No PI files found. Skipping PI processing.\n');
