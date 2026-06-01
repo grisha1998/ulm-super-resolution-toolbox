@@ -182,9 +182,10 @@ function reg = getAlgorithmRegistry()
 
     % ---------------- DETECTORS ----------------
     reg.detect = struct( ...
-        'id',      {'Intensity',                      'NP',                                'NCC'}, ...
-        'display', {'Intensity Threshold',            'Neyman-Pearson',                    'Normalized Cross-Correlation'}, ...
-        'tooltip', { ...
+        'id',            {'Intensity',           'NP',             'NCC'}, ...
+        'display',       {'Intensity Threshold', 'Neyman-Pearson', 'Normalized Cross-Correlation'}, ...
+        'needsTemplate', {false,                 false,            true}, ...
+        'tooltip',       { ...
             'Local maxima above a fixed intensity fraction. Simple and fast.', ...
             'Statistical detector with controlled false-alarm rate (alpha0). Robust to variable noise.', ...
             'Template matching against a PSF kernel. Best shape selectivity - slower.' ...
@@ -406,7 +407,7 @@ function app = buildGUILayout(app)
     % --- Main Grid: 3 rows (menu, main content, status) x 2 columns ---
     gl = uigridlayout(fig, [3, 2]);
     gl.RowHeight = {40, '1x', 40};
-    gl.ColumnWidth = {'3x', '1x'};
+    gl.ColumnWidth = {'1x', 340};
     gl.Padding = [5 5 5 5];
     gl.RowSpacing = 5;
     gl.ColumnSpacing = 5;
@@ -513,7 +514,7 @@ function app = buildVisualizationPanel(app, parentGrid)
 end
 
 function app = buildDisplayControlsPanel(app, parentGrid)
-    p_disp = uipanel(parentGrid, 'Title', 'Visual Adjustments');
+    p_disp = uipanel(parentGrid, 'Title', 'Visual Adjustments', 'Scrollable', 'on');
     p_disp.Layout.Row = 1;
     p_disp.Layout.Column = 1;
 
@@ -595,29 +596,65 @@ end
 % --- TAB BUILDERS --------------------------------------------------------
 % =========================================================================
 
+function scrollPanel = createScrollableTabPanel(tab)
+% CREATESCROLLABLETABPANEL  Fills a uitab with a scrollable panel.
+%   Uses a 1x1 grid wrapper (required because uitab's AutoResizeChildren
+%   overrides Units/Position), then places a Scrollable panel inside it.
+    g = uigridlayout(tab, [1 1]);
+    g.Padding = [0 0 0 0];
+    scrollPanel = uipanel(g, ...
+        'BorderType', 'none', ...
+        'Scrollable', 'on');
+end
+
 function app = buildFilterTab(app)
     reg = getAlgorithmRegistry();
     app.ui.tabFilter = uitab(app.ui.tabGroup, 'Title', '1. Filter');
-    g_tab = uigridlayout(app.ui.tabFilter, [1 1]);
-    app.ui.panel_filt = uipanel(g_tab, 'BorderType', 'none');
+    
+    % 1. MAIN TAB LAYOUT: 2 Rows
+    % Row 1: Scrollable area ('1x' - takes all available space)
+    % Row 2: Pinned Run Button (45px - fixed at the bottom)
+    g_tab = uigridlayout(app.ui.tabFilter, [2, 1]);
+    g_tab.RowHeight = {'1x', 45};
+    g_tab.ColumnWidth = {'1x'};
+    g_tab.Padding = [5 5 5 5];
+    g_tab.RowSpacing = 10;
 
-    % 12 rows: +1 for block-wise panel
-    g = uigridlayout(app.ui.panel_filt, [12, 1]);
-    g.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','1x'};
+    % 2. INNER GRID (SCROLLABLE)
+    % We apply 'Scrollable' DIRECTLY to the grid layout. No uipanel needed!
+    g = uigridlayout(g_tab, [10, 1], 'Scrollable', 'on');
+    g.Layout.Row = 1;
+    g.Layout.Column = 1;
+    app.ui.g_filter = g; % Save reference for dynamic height adjustments
+    
+    g.ColumnWidth = {'1x'};
+    g.RowSpacing = 8;
+    g.Padding = [5 5 20 5]; % Extra right padding to avoid hiding text behind scrollbar
+    
+    % STRICT ABSOLUTE HEIGHTS IN PIXELS. NO '1x' ALLOWED HERE!
+    % Order: 1.Label, 2.Drop, 3.Crop, 4.Mask, 5.SVD, 6.DCC, 7.Butter, 8.Spatial, 9.Blockwise, 10.Spacer
+    g.RowHeight = {25, 30, 140, 140, 0, 0, 130, 110, 0, 20};
 
-    % Method Selection
-    uilabel(g, 'Text', 'Filter Method:', 'FontWeight', 'bold');
+    % Row 1 & 2: Method Selection
+    lbl = uilabel(g, 'Text', 'Filter Method:', 'FontWeight', 'bold');
+    lbl.Layout.Row = 1;
+
+    filterItems = registryIds(reg.filter);
+    matchIdx = find(strcmpi(filterItems, app.data.params.filter.method), 1);
+    if isempty(matchIdx), matchIdx = 1; end
+    
     app.ui.FilterMethodDropdown = uidropdown(g, ...
-        'Items', registryIds(reg.filter), ...
-        'Value', app.data.params.filter.method);
+        'Items', filterItems, ...
+        'Value', filterItems{matchIdx});
+    app.ui.FilterMethodDropdown.Layout.Row = 2;
 
-    % Spatial Crop Panel
+    % Row 3: Spatial Crop Panel
     app = buildCropPanel(app, g);
-    app.ui.p_crop.Layout.Row = 4;
+    app.ui.p_crop.Layout.Row = 3;
 
-    % Masking Panel
+    % Row 4: Masking Panel
     app.ui.p_mask = uipanel(g, 'Title', 'Masking (for Localization)');
-    app.ui.p_mask.Layout.Row = 5;
+    app.ui.p_mask.Layout.Row = 4;
     g_mask = uigridlayout(app.ui.p_mask, [2, 2]);
     app.ui.LoadMaskButton = uibutton(g_mask, 'Text', 'Load Mask', ...
         'ButtonPushedFcn', @(s,e) loadMask(app.fig));
@@ -628,9 +665,9 @@ function app = buildFilterTab(app)
     app.ui.maskStatusLabel = uilabel(g_mask, 'Text', 'Status: None', ...
         'FontWeight', 'bold', 'HorizontalAlignment', 'center');
 
-    % SVD Parameters
+    % Row 5: SVD Parameters
     app.ui.p_svd = uipanel(g, 'Title', 'Standard SVD Params');
-    app.ui.p_svd.Layout.Row = 6;
+    app.ui.p_svd.Layout.Row = 5;
     g_svd = uigridlayout(app.ui.p_svd, [2, 2]);
     uilabel(g_svd, 'Text', 'Cutoff Start:');
     app.ui.SVDCutoffStart = uieditfield(g_svd, 'numeric', ...
@@ -641,27 +678,32 @@ function app = buildFilterTab(app)
         'Value', app.data.params.filter.svd_cutoff(2), ...
         'ValueChangedFcn', @(s,e) runFilterWithValidation(app.fig));
 
-    % DCC Parameters
+    % Row 6: DCC Parameters
     app = buildDCCPanel(app, g);
-    app.ui.p_dcc.Layout.Row = 7;
+    app.ui.p_dcc.Layout.Row = 6;
 
-    % Butterworth Filter
+    % Row 7: Butterworth Filter
     app = buildButterworthPanel(app, g);
-    app.ui.p_butter.Layout.Row = 8;
+    app.ui.p_butter.Layout.Row = 7;
 
-    % Spatial Filter
+    % Row 8: Spatial Filter
     app = buildSpatialFilterPanel(app, g);
-    app.ui.p_spatial.Layout.Row = 9;
+    app.ui.p_spatial.Layout.Row = 8;
 
-    % Block-wise SVD Panel (NEW)
+    % Row 9: Block-wise SVD Panel
     app = buildBlockwisePanel(app, g);
-    app.ui.p_blockwise.Layout.Row = 10;
+    app.ui.p_blockwise.Layout.Row = 9;
 
-    % Run Button
-    app.ui.RunFilterButton = uibutton(g, 'Text', 'Run Filter', ...
+    % Row 10: Empty label to provide bottom padding inside the scroll area
+    lblPad = uilabel(g, 'Text', '');
+    lblPad.Layout.Row = 10;
+
+    % 3. RUN BUTTON: Pinned to the outer tab grid (Row 2), ALWAYS visible
+    app.ui.RunFilterButton = uibutton(g_tab, 'Text', 'Run Filter', ...
         'ButtonPushedFcn', @(s,e) runFilter(app.fig), ...
         'FontWeight', 'bold', 'BackgroundColor', [0.6 1 0.6]);
-    app.ui.RunFilterButton.Layout.Row = 11;
+    app.ui.RunFilterButton.Layout.Row = 2;
+    app.ui.RunFilterButton.Layout.Column = 1;
 end
 
 function app = buildCropPanel(app, parentGrid)
@@ -669,6 +711,7 @@ function app = buildCropPanel(app, parentGrid)
 
     g_crop = uigridlayout(app.ui.p_crop, [2, 3]);
     g_crop.ColumnWidth = {'1x', '1x', '1x'};
+    g_crop.RowHeight = {'fit', 'fit'};
 
     uilabel(g_crop, 'Text', 'Crop Box [x y w h]:');
     app.ui.CropBoxField = uieditfield(g_crop, 'text', 'Value', '[]');
@@ -688,6 +731,7 @@ function app = buildDCCPanel(app, parentGrid)
     app.ui.p_dcc = uipanel(parentGrid, 'Title', 'DCC-SVD Reconstruction');
     g = uigridlayout(app.ui.p_dcc, [3, 5]);
     g.ColumnWidth = {'fit', '1x', '0.5x', '1x', '0.5x'};
+    g.RowHeight = {'fit', 'fit', 'fit'};
 
     uilabel(g, 'Text', 'Tissue:', 'FontWeight', 'bold');
     uilabel(g, 'Text', 'Start (%):');
@@ -717,6 +761,7 @@ end
 function app = buildButterworthPanel(app, parentGrid)
     app.ui.p_butter = uipanel(parentGrid, 'Title', 'Butterworth Filter (Optional)');
     g = uigridlayout(app.ui.p_butter, [3, 2]);
+    g.RowHeight = {'fit', 'fit', 'fit'};
 
     app.ui.EnableButterworth = uicheckbox(g, 'Text', 'Enable', ...
         'Value', app.data.params.filter.enable_butterworth, ...
@@ -738,6 +783,7 @@ function app = buildSpatialFilterPanel(app, parentGrid)
     app.ui.p_spatial = uipanel(parentGrid, 'Title', 'Spatial Pre-filtering (Optional)');
     g = uigridlayout(app.ui.p_spatial, [2, 4]);
     g.ColumnWidth = {'fit', '1x', 'fit', '1x'};
+    g.RowHeight = {'fit', 'fit'};
 
     uilabel(g, 'Text', 'Method:');
     app.ui.SpatialMethodDrop = uidropdown(g, ...
@@ -805,67 +851,51 @@ end
 % Block-wise SVD panel (Song et al. 2017). Appears when filter method is
 % 'svd_blockwise'. All parameter semantics match SVD_blockwise.m exactly.
 % -------------------------------------------------------------------------
-function app = buildBlockwisePanel(app, parentGrid)
-    app.ui.p_blockwise = uipanel(parentGrid, 'Title', 'Block-wise SVD Params (Song 2017)');
-    g = uigridlayout(app.ui.p_blockwise, [5, 4]);
-    g.ColumnWidth = {'fit', '1x', 'fit', '1x'};
+function app = buildBlockwisePanel(app, parent)
+    % 1. Create the main wrapper panel
+    app.ui.p_blockwise = uipanel(parent, 'Title', 'Block-wise SVD Parameters');
+    
+    % 2. Create a strict internal grid (3 Rows, 2 Columns) matching your original UI
+    g_bw = uigridlayout(app.ui.p_blockwise, [3, 2]);
+    g_bw.RowHeight = {25, 25, 25};
+    g_bw.ColumnWidth = {'fit', '1x'};
+    g_bw.RowSpacing = 8;
+    g_bw.Padding = [10 10 10 10];
 
-    bw = app.data.params.filter.blockwise;
+    % 3. Ensure fallback parameters exist to prevent crashes
+    if ~isfield(app.data.params.filter, 'block_size')
+        app.data.params.filter.block_size = [32 32];
+    end
+    if ~isfield(app.data.params.filter, 'overlap_pct')
+        app.data.params.filter.overlap_pct = 0.5;
+    end
+    if ~isfield(app.data.params.filter, 'svd_cutoff')
+        app.data.params.filter.svd_cutoff = [5 100];
+    end
 
-    % Row 1: Threshold method + manual-cutoff (visible only if Manual)
-    uilabel(g, 'Text', 'Threshold Method:');
-    app.ui.BWThresholdMethod = uidropdown(g, ...
-        'Items', {'DopplerGradient', 'SSM', 'Hybrid', 'Manual'}, ...
-        'Value', getDefault(bw, 'threshold_method', 'DopplerGradient'), ...
-        'ValueChangedFcn', @(s,e) updateBlockwiseOptions(app.fig));
+    % --- ROW 1: Block Size [Z, X] (Original Text Array) ---
+    lblZ = uilabel(g_bw, 'Text', 'Block Size [Z, X]:');
+    lblZ.Layout.Row = 1; lblZ.Layout.Column = 1;
+    app.ui.BlockSize = uieditfield(g_bw, 'text', ...
+        'Value', num2str(app.data.params.filter.block_size), ...
+        'ValueChangedFcn', @(s,e) runFilterWithValidation(app.fig));
+    app.ui.BlockSize.Layout.Row = 1; app.ui.BlockSize.Layout.Column = 2;
 
-    app.ui.lblBWManualCutoff = uilabel(g, 'Text', 'Manual Cutoff [Lo Hi]:');
-    app.ui.BWManualCutoff = uieditfield(g, 'text', ...
-        'Value', mat2str(getDefault(bw, 'manual_cutoff', [10 200])));
+    % --- ROW 2: Overlap [%] (Original Numeric) ---
+    lblOv = uilabel(g_bw, 'Text', 'Overlap [%]:');
+    lblOv.Layout.Row = 2; lblOv.Layout.Column = 1;
+    app.ui.BlockOverlap = uieditfield(g_bw, 'numeric', ...
+        'Value', app.data.params.filter.overlap_pct * 100, ...
+        'ValueChangedFcn', @(s,e) runFilterWithValidation(app.fig));
+    app.ui.BlockOverlap.Layout.Row = 2; app.ui.BlockOverlap.Layout.Column = 2;
 
-    % Row 2: Block size + overlap
-    uilabel(g, 'Text', 'Block Size (mm):');
-    app.ui.BWBlockSize = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'block_size_mm', 4.0), ...
-        'ValueDisplayFormat', '%.2f');
-
-    uilabel(g, 'Text', 'Overlap (%):');
-    app.ui.BWOverlapPct = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'overlap_pct', 75.0), ...
-        'Limits', [0 99]);
-
-    % Row 3: MP sigma + gradient pct
-    uilabel(g, 'Text', 'MP Deviation (sigma):');
-    app.ui.BWMPSigma = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'mp_deviation_sigma', 2.0));
-
-    uilabel(g, 'Text', 'Gradient Inflection (%):');
-    app.ui.BWGradientPct = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'gradient_pct', 0.10), ...
-        'ValueDisplayFormat', '%.3f');
-
-    % Row 4: Tissue freq + min blood
-    uilabel(g, 'Text', 'Tissue Freq Thr (Hz):');
-    app.ui.BWTissueFreq = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'tissue_freq_hz', -1));
-
-    uilabel(g, 'Text', 'Min Blood Comps:');
-    app.ui.BWMinBlood = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'min_blood_comps', 3), ...
-        'RoundFractionalValues', 'on');
-
-    % Row 5: Max tissue frac + plot (checkbox spans cols 3-4)
-    uilabel(g, 'Text', 'Max Tissue Fraction:');
-    app.ui.BWMaxTissueFrac = uieditfield(g, 'numeric', ...
-        'Value', getDefault(bw, 'max_tissue_frac', 0.60), ...
-        'Limits', [0.1 0.99]);
-
-    app.ui.BWPlotMaps = uicheckbox(g, 'Text', 'Plot threshold maps', ...
-        'Value', getDefault(bw, 'plot_maps', false));
-    app.ui.BWPlotMaps.Layout.Row = 5;
-    app.ui.BWPlotMaps.Layout.Column = [3 4];
-
-    updateBlockwiseOptions(app.fig, app);
+    % --- ROW 3: SVD Cutoffs [Start, End] (Original Text Array) ---
+    lblCut = uilabel(g_bw, 'Text', 'SVD Cutoffs [Start, End]:');
+    lblCut.Layout.Row = 3; lblCut.Layout.Column = 1;
+    app.ui.BlockCutoff = uieditfield(g_bw, 'text', ...
+        'Value', num2str(app.data.params.filter.svd_cutoff), ...
+        'ValueChangedFcn', @(s,e) runFilterWithValidation(app.fig));
+    app.ui.BlockCutoff.Layout.Row = 3; app.ui.BlockCutoff.Layout.Column = 2;
 end
 
 function updateBlockwiseOptions(fig, app_in)
@@ -879,17 +909,33 @@ end
 
 function app = buildDetectTab(app)
     app.ui.tabDetect = uitab(app.ui.tabGroup, 'Title', '2. Detect');
-    g_tab = uigridlayout(app.ui.tabDetect, [1 1]);
-    app.ui.panel_detect = uipanel(g_tab, 'BorderType', 'none');
+    
+    % 1. MAIN TAB LAYOUT: 2 Rows (Scrollable content area + Pinned Run Button)
+    g_tab = uigridlayout(app.ui.tabDetect, [2, 1]);
+    g_tab.RowHeight = {'1x', 45};
+    g_tab.ColumnWidth = {'1x'};
+    g_tab.Padding = [5 5 5 5];
+    g_tab.RowSpacing = 10;
 
-    g_main = uigridlayout(app.ui.panel_detect, [2, 1]);
-    g_main.RowHeight = {'1.2x', '1x'};
+    % 2. INNER GRID (SCROLLABLE) - Holds the sequential step panels
+    g_scroll = uigridlayout(g_tab, [2, 1], 'Scrollable', 'on');
+    g_scroll.Layout.Row = 1;
+    g_scroll.Layout.Column = 1;
+    g_scroll.RowHeight = {380, 'fit'}; % ROI Panel takes 380px, Detect parameters panel auto-fits
+    g_scroll.Padding = [5 5 20 5]; % Extra right padding to prevent clipping behind the scrollbar
 
-    % ROI Panel
-    app = buildROIPanel(app, g_main);
+    % Step A: Define ROI Mask
+    app = buildROIPanel(app, g_scroll);
 
-    % Detection Parameters
-    app = buildDetectionParamsPanel(app, g_main);
+    % Step B: Detection Parameters
+    app = buildDetectionParamsPanel(app, g_scroll);
+
+    % 3. RUN DETECTION BUTTON: Pinned permanently to the bottom of the tab (Row 2)
+    app.ui.RunDetectButton = uibutton(g_tab, 'Text', 'Run Detection (Masked)', ...
+        'ButtonPushedFcn', @(s,e) runDetection(app.fig), ...
+        'FontWeight', 'bold', 'BackgroundColor', [0.6 1 0.6]);
+    app.ui.RunDetectButton.Layout.Row = 2;
+    app.ui.RunDetectButton.Layout.Column = 1;
 end
 
 function app = buildROIPanel(app, parentGrid)
@@ -910,8 +956,10 @@ function app = buildROIPanel(app, parentGrid)
 
     g_ctrl = uigridlayout(g, [4, 3]);
     g_ctrl.Layout.Row = 2;
-    g_ctrl.RowHeight = {'fit', 'fit', 'fit', 30};
-    g_ctrl.ColumnWidth = {110, 90, '1x'};
+    % Strict pixel heights prevent MATLAB from aggressively crushing sliders/buttons
+    g_ctrl.RowHeight = {40, 40, 40, 35};
+    g_ctrl.RowSpacing = 5;
+    g_ctrl.ColumnWidth = {80, 70, '1x'};
 
     uilabel(g_ctrl, 'Text', '1. Enhance:', 'FontWeight', 'bold');
     app.ui.EnhanceMethodDrop = uidropdown(g_ctrl, ...
@@ -955,8 +1003,7 @@ function app = buildDetectionParamsPanel(app, parentGrid)
     
     app.ui.p_detect_params = uipanel(parentGrid, 'Title', 'Step B: Detection');
     app.ui.p_detect_params.Layout.Row = 2;
-    
-    % Notice: Changed to 9 rows to fit all elements properly on separate rows
+   
     g = uigridlayout(app.ui.p_detect_params, [9, 3]);
     g.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','fit'};
     g.ColumnWidth = {'fit', 60, '1x'};
@@ -1061,48 +1108,64 @@ function app = buildDetectionParamsPanel(app, parentGrid)
     app.ui.BtnAdvDetect.Layout.Row = 8;
     app.ui.BtnAdvDetect.Layout.Column = [1 3];
     
-    % Row 9: Run button
-    app.ui.RunDetectButton = uibutton(g, 'Text', 'Run Detection (Masked)', ...
-        'ButtonPushedFcn', @(s,e) runDetection(app.fig), ...
-        'FontWeight', 'bold', 'BackgroundColor', [0.6 1 0.6]);
-    app.ui.RunDetectButton.Layout.Row = 9;
-    app.ui.RunDetectButton.Layout.Column = [1 3];
+    % Row 9: Detection Hint Label (For PSF template warnings)
+    app.ui.LblDetectHint = uilabel(g, 'Text', '', 'WordWrap', 'on');
+    app.ui.LblDetectHint.Layout.Row = 9;
+    app.ui.LblDetectHint.Layout.Column = [1 3];
 end
 
 function app = buildLocalizeTab(app)
     reg = getAlgorithmRegistry();
     app.ui.tabLocalize = uitab(app.ui.tabGroup, 'Title', '3. Localize');
-    g_tab = uigridlayout(app.ui.tabLocalize, [1 1]);
-    app.ui.panel_loc = uipanel(g_tab, 'BorderType', 'none');
-    g = uigridlayout(app.ui.panel_loc, [8, 1]);
-    g.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
 
-    uilabel(g, 'Text', 'Localization Method:', 'FontWeight', 'bold');
+    % 1. MAIN TAB LAYOUT: 2 Rows (Scrollable content area + Pinned Run Button)
+    g_tab = uigridlayout(app.ui.tabLocalize, [2, 1]);
+    g_tab.RowHeight = {'1x', 45};
+    g_tab.ColumnWidth = {'1x'};
+    g_tab.Padding = [5 5 5 5];
+    g_tab.RowSpacing = 10;
+
+    % 2. INNER GRID (SCROLLABLE) - Holds the localization panels
+    g = uigridlayout(g_tab, [7, 1], 'Scrollable', 'on');
+    g.Layout.Row = 1;
+    g.Layout.Column = 1;
+    g.RowSpacing = 8;
+    g.Padding = [5 5 20 5]; % Padding to avoid overlap with scrollbar
+    g.RowHeight = {25, 30, 110, 110, 40, 0, 40}; % Strict height allocation
+
+    % Method Selection
+    lblMethod = uilabel(g, 'Text', 'Localization Method:', 'FontWeight', 'bold');
+    lblMethod.Layout.Row = 1;
     app.ui.LocMethodDropdown = uidropdown(g, ...
         'Items', registryIds(reg.loc), ...
         'Value', app.data.params.loc.method);
+    app.ui.LocMethodDropdown.Layout.Row = 2;
 
-    % QC Panels (rows 3 & 4)
+    % QC Panels (Row 3 & 4)
+    % Note: These build functions create their own internal uipanels
     app = buildLocalizationQCPanels(app, g);
+    app.ui.p_loc_qc_radial.Layout.Row = 3;
+    app.ui.p_loc_qc_gauss.Layout.Row = 4;
 
-    % Row 5: Advanced
+    % Advanced Options
     app.ui.BtnAdvLoc = uibutton(g, ...
         'Text', 'Advanced Localization / Detection Parameters...', ...
         'ButtonPushedFcn', @(s,e) openAdvancedLocGUI(app.fig));
     app.ui.BtnAdvLoc.Layout.Row = 5;
 
-    % Row 6: Run
-    app.ui.RunLocalizationButton = uibutton(g, 'Text', 'Run Localization', ...
-        'ButtonPushedFcn', @(s,e) runLocalization(app.fig), ...
-        'FontWeight', 'bold', 'BackgroundColor', [0.6 1 0.6]);
-    app.ui.RunLocalizationButton.Layout.Row = 6;
-
-    % Row 7: density preview
+    % Density Preview
     app.ui.ShowLocDensityButton = uibutton(g, ...
         'Text', 'Show Localization Density Map', ...
         'ButtonPushedFcn', @(s,e) showLocalizationDensity(app.fig), ...
         'FontWeight', 'bold', 'BackgroundColor', [0.6 0.8 1]);
     app.ui.ShowLocDensityButton.Layout.Row = 7;
+
+    % 3. RUN LOCALIZATION BUTTON: Pinned permanently to the bottom (Row 2)
+    app.ui.RunLocalizationButton = uibutton(g_tab, 'Text', 'Run Localization', ...
+        'ButtonPushedFcn', @(s,e) runLocalization(app.fig), ...
+        'FontWeight', 'bold', 'BackgroundColor', [0.6 1 0.6]);
+    app.ui.RunLocalizationButton.Layout.Row = 2;
+    app.ui.RunLocalizationButton.Layout.Column = 1;
 end
 
 function app = buildLocalizationQCPanels(app, parentGrid)
@@ -1111,6 +1174,7 @@ function app = buildLocalizationQCPanels(app, parentGrid)
     app.ui.p_loc_qc_radial.Layout.Row = 3;
     g = uigridlayout(app.ui.p_loc_qc_radial, [3, 2]);
     g.ColumnWidth = {'fit', '1x'};
+    g.RowHeight = {'fit', 'fit', 'fit'};
 
     app.ui.LocQCDivergence = uicheckbox(g, 'Text', 'Enable Divergence Check', ...
         'Value', app.data.params.loc.enable_divergence_check);
@@ -1129,6 +1193,7 @@ function app = buildLocalizationQCPanels(app, parentGrid)
     app.ui.p_loc_qc_gauss.Layout.Row = 4;
     g2 = uigridlayout(app.ui.p_loc_qc_gauss, [3, 2]);
     g2.ColumnWidth = {'fit', '1x'};
+    g2.RowHeight = {'fit', 'fit', 'fit'};
 
     uilabel(g2, 'Text', 'FWHM [x z] (px):');
     app.ui.LocFWHM = uieditfield(g2, 'text', ...
@@ -1142,10 +1207,20 @@ end
 function app = buildTrackTab(app)
     reg = getAlgorithmRegistry();
     app.ui.tabTrack = uitab(app.ui.tabGroup, 'Title', '4. Track');
-    g_tab = uigridlayout(app.ui.tabTrack, [1 1]);
-    app.ui.panel_track = uipanel(g_tab, 'BorderType', 'none');
-    g = uigridlayout(app.ui.panel_track, [8, 1]);
-    g.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x'};
+    
+    % 1. MAIN TAB LAYOUT: 2 Rows (Scrollable content area + Pinned Run Button)
+    g_tab = uigridlayout(app.ui.tabTrack, [2, 1]);
+    g_tab.RowHeight = {'1x', 45};
+    g_tab.ColumnWidth = {'1x'};
+    g_tab.Padding = [5 5 5 5];
+    g_tab.RowSpacing = 10;
+
+    % 2. INNER GRID (SCROLLABLE) - 6 rows only, no run button here
+    g = uigridlayout(g_tab, [6, 1], 'Scrollable', 'on');
+    g.Layout.Row = 1;
+    g.Layout.Column = 1;
+    g.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', 'fit'};
+    g.Padding = [5 5 20 5]; % Extra right padding for scrollbar visibility
 
     uilabel(g, 'Text', 'Tracking Method:', 'FontWeight', 'bold');
     
@@ -1172,11 +1247,12 @@ function app = buildTrackTab(app)
     % Row 6: Kalman gain diagnostics (NEW)
     app = buildKalmanGainPanel(app, g);
 
-    % Row 7: Run button
-    app.ui.RunTrackingButton = uibutton(g, 'Text', 'Run Tracking', ...
+    % 3. RUN TRACKING BUTTON: Pinned permanently to the bottom of the tab (Row 2)
+    app.ui.RunTrackingButton = uibutton(g_tab, 'Text', 'Run Tracking', ...
         'ButtonPushedFcn', @(s,e) runTracking(app.fig), ...
         'FontWeight', 'bold', 'BackgroundColor', [0.6 1 0.6]);
-    app.ui.RunTrackingButton.Layout.Row = 7;
+    app.ui.RunTrackingButton.Layout.Row = 2;
+    app.ui.RunTrackingButton.Layout.Column = 1;
 end
 
 function app = buildTrackCoreParams(app, parentGrid)
@@ -1184,6 +1260,7 @@ function app = buildTrackCoreParams(app, parentGrid)
     p.Layout.Row = 3;
     g = uigridlayout(p, [3, 3]);
     g.ColumnWidth = {'fit', '1x', '0.5x'};
+    g.RowHeight = {50, 50, 50};
 
     uilabel(g, 'Text', 'Max Link Dist (px):');
     app.ui.MaxDistSlider = uislider(g, 'Limits', [0.1 10], ...
@@ -1215,6 +1292,7 @@ function app = buildKalmanPanel(app, parentGrid)
     app.ui.p_kalman_adv.Layout.Row = 4;
     g = uigridlayout(app.ui.p_kalman_adv, [6, 3]);
     g.ColumnWidth = {'fit', '1x', '0.5x'};
+    g.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', 'fit'};
 
     uilabel(g, 'Text', 'Model:');
     app.ui.KalmanModelDrop = uidropdown(g, ...
@@ -1266,6 +1344,7 @@ function app = buildTrackQCPanel(app, parentGrid)
     p.Layout.Row = 5;
     g = uigridlayout(p, [3, 3]);
     g.ColumnWidth = {'fit', '1x', '0.5x'};
+    g.RowHeight = {'fit', 'fit', 'fit'};
 
     app.ui.TrackQCDirection = uicheckbox(g, 'Text', 'Direction Constraint', ...
         'Value', app.data.params.track.qc.enable_direction_constraint);
@@ -1345,10 +1424,10 @@ end
 
 function app = buildPostProcessTab(app)
     app.ui.tabPostProcess = uitab(app.ui.tabGroup, 'Title', '5. Post-Process');
-    g_tab = uigridlayout(app.ui.tabPostProcess, [1 1]);
-    app.ui.panel_post = uipanel(g_tab, 'BorderType', 'none');
-    g = uigridlayout(app.ui.panel_post, [4, 1]);
-    g.RowHeight = {'fit', 'fit', 'fit', '1x'};
+    app.ui.panel_post = createScrollableTabPanel(app.ui.tabPostProcess);
+
+    g = uigridlayout(app.ui.panel_post, [3, 1]);
+    g.RowHeight = {'fit', 'fit', 'fit'};
 
     p_smooth = uipanel(g, 'Title', 'Track Smoothing');
     p_smooth.Layout.Row = 1;
@@ -1395,14 +1474,15 @@ end
 function app = buildRenderTab(app)
     reg = getAlgorithmRegistry();
     app.ui.tabRender = uitab(app.ui.tabGroup, 'Title', '6. Render');
-    g_tab = uigridlayout(app.ui.tabRender, [1 1]);
-    app.ui.panel_render = uipanel(g_tab, 'BorderType', 'none');
-    g = uigridlayout(app.ui.panel_render, [5, 1]);
-    g.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x'};
+    app.ui.panel_render = createScrollableTabPanel(app.ui.tabRender);
+
+    g = uigridlayout(app.ui.panel_render, [4, 1]);
+    g.RowHeight = {'fit', 'fit', 'fit', 'fit'};
 
     p_settings = uipanel(g, 'Title', 'Rendering Settings');
     p_settings.Layout.Row = 1;
     g_set = uigridlayout(p_settings, [2, 2]);
+    g_set.RowHeight = {'fit', 'fit'};
 
     uilabel(g_set, 'Text', 'Upsampling Factor:');
     app.ui.UpsamplingField = uieditfield(g_set, 'numeric', ...
@@ -2386,6 +2466,16 @@ end
 % --- RENDERING HELPER FUNCTIONS ------------------------------------------
 % =========================================================================
 
+function enforceMinimumSize(fig)
+% ENFORCEMINIMUMSIZE  Prevents the figure from being resized below usable limits.
+    MIN_W = 900;
+    MIN_H = 600;
+    pos = fig.Position;
+    if pos(3) < MIN_W || pos(4) < MIN_H
+        fig.Position = [pos(1), pos(2), max(pos(3), MIN_W), max(pos(4), MIN_H)];
+    end
+end
+
 function showLocalizationDensity(fig)
     app = guidata(fig);
 
@@ -3357,7 +3447,7 @@ function populateGUIFromParams(fig)
     sv('UseAdvancedCostCheckbox',   getDefault(p, 'track.use_advanced_cost_matrix', false));
     sv('KalmanModelDrop',           getDefault(p, 'track.kalman.motion_model', 'ConstantVelocity'));
     sv('KalmanNoise',               getDefault(p, 'track.kalman.process_noise', 0.1));
-    sv('AssignmentDrop',            getDefault(p, 'track.kalman.assignment_method', 'Munkres'));
+    sv('AssignmentDrop',            getDefault(p, 'track.kalman.assignment_method', 'hungarian'));
 
     % Track QC
     sv('TrackQCDirection',    getDefault(p, 'track.qc.enable_direction_constraint', true));
@@ -3485,7 +3575,7 @@ function updateFilterOptions(fig)
     off = matlab.lang.OnOffSwitchState.off;
     on  = matlab.lang.OnOffSwitchState.on;
 
-    % Hide every method-specific panel, then show the one for this method.
+    % 1. Hide all conditional panels by default
     panels = {'p_svd', 'p_dcc', 'p_blockwise'};
     for i = 1:numel(panels)
         if isfield(app.ui, panels{i}) && isvalid(app.ui.(panels{i}))
@@ -3493,18 +3583,32 @@ function updateFilterOptions(fig)
         end
     end
 
+    % 2. Define the baseline absolute row heights in pixels
+    % Index mapping: 5=SVD, 6=DCC, 9=Blockwise (start hidden at 0)
+    rowHeights = {25, 30, 140, 140, 0, 0, 130, 110, 0, 20};
+
+    % 3. Reveal the active panel and assign its strict pixel height
     switch lower(char(method))
-        case 'svd_filter'
+        case {'svd_filter', 'svd_ssm'}
             if isfield(app.ui, 'p_svd'), app.ui.p_svd.Visible = on; end
-        case 'svd_ssm'
-            if isfield(app.ui, 'p_svd'), app.ui.p_svd.Visible = on; end
+            rowHeights{5} = 110; % Expanded SVD Panel (was 90)
+            
         case 'dcc_svd'
             if isfield(app.ui, 'p_dcc'), app.ui.p_dcc.Visible = on; end
+            rowHeights{6} = 130; % Expanded DCC Panel (was 110)
+            
         case 'svd_blockwise'
             if isfield(app.ui, 'p_blockwise')
                 app.ui.p_blockwise.Visible = on;
             end
             updateBlockwiseOptions(fig, app);
+            rowHeights{9} = 220; % Generously expanded Blockwise Panel (was 190)
+    end
+
+    % 4. Apply the exact pixel heights to the inner grid
+    % Because NO row is '1x' or 'fit', MATLAB is forced to overflow and show the scrollbar!
+    if isfield(app.ui, 'g_filter') && isvalid(app.ui.g_filter)
+        app.ui.g_filter.RowHeight = rowHeights;
     end
 
     updateSpatialOptions(fig, app);
@@ -3528,11 +3632,17 @@ function updateDetectionOptions(fig)
             app.ui.(name{1}).Visible = matlab.lang.OnOffSwitchState(isNP);
         end
     end
+
     % NCC threshold field + label
     for name = {'NCC_ThreshField','lbl_NCC_thresh'}
         if isfield(app.ui, name{1}) && isvalid(app.ui.(name{1}))
             app.ui.(name{1}).Visible = matlab.lang.OnOffSwitchState(isNCC);
         end
+    end
+
+    % Hide the entire parent panel if neither NP nor NCC is selected
+    if isfield(app.ui, 'p_detect_method_params') && isvalid(app.ui.p_detect_method_params)
+        app.ui.p_detect_method_params.Visible = matlab.lang.OnOffSwitchState(isNP || isNCC);
     end
 
     % Hint label if any template-requiring method is active
@@ -4929,7 +5039,7 @@ function p = createFallbackParams()
 
     % -------- Filter --------
     p.filter = struct();
-    p.filter.method = 'svd';
+    p.filter.method = 'svd_filter';
     p.filter.svd_cutoff = [5 100];
     p.filter.enable_butterworth = false;
     p.filter.butter_cutoff = [50 250];
@@ -4992,7 +5102,7 @@ function p = createFallbackParams()
     p.track.kalman = struct( ...
         'motion_model', 'ConstantVelocity', ...
         'process_noise', 0.1, ...
-        'assignment_method', 'Munkres', ...
+        'assignment_method', 'hungarian', ...
         'use_direction', true, ...
         'use_angle', true, ...
         'use_brightness', true, ...
